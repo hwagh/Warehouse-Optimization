@@ -40,14 +40,27 @@ class StorageArea:
     efficiency: float
     units_per_box: float
     is_staging: bool = False
+    max_concurrent_boxes: Optional[int] = None  # hard cap; None = no cap, use volume
 
     @property
     def capacity_boxes(self) -> int:
-        return int((self.volume_cuft * self.efficiency) / self.avg_box_size_cuft)
+        """
+        Effective capacity in boxes.
+        If max_concurrent_boxes is set it acts as a hard cap —
+        utilization is measured against it rather than volume.
+        """
+        vol_cap = int((self.volume_cuft * self.efficiency) / self.avg_box_size_cuft)
+        if self.max_concurrent_boxes is not None:
+            return min(self.max_concurrent_boxes, vol_cap)
+        return vol_cap
 
     @property
     def capacity_units(self) -> int:
         return int(self.capacity_boxes * self.units_per_box)
+
+    @property
+    def has_box_cap(self) -> bool:
+        return self.max_concurrent_boxes is not None
 
     def utilization_pct(self, load_boxes: float) -> float:
         cap = self.capacity_boxes
@@ -148,7 +161,8 @@ DEFAULT_AREAS: List[StorageArea] = [
                 efficiency=0.70,   units_per_box=24.0),
     StorageArea(id="smart_bulk", name="Smart Bulk (Paper staging)",
                 zone="SMART_BULK", volume_cuft=8000,  avg_box_size_cuft=5.0,
-                efficiency=0.80,   units_per_box=24.0, is_staging=True),
+                efficiency=0.80,   units_per_box=24.0, is_staging=True,
+                max_concurrent_boxes=200),
     StorageArea(id="zone400",    name="400 – Consumables",
                 zone="400",        volume_cuft=14000, avg_box_size_cuft=3.5,
                 efficiency=0.75,   units_per_box=12.0),
@@ -163,7 +177,8 @@ DEFAULT_AREAS: List[StorageArea] = [
                 efficiency=0.85,   units_per_box=6.0),
     StorageArea(id="kitting",    name="Kitting (Custom kit assembly)",
                 zone="100",        volume_cuft=4000,  avg_box_size_cuft=1.5,
-                efficiency=0.85,   units_per_box=6.0),
+                efficiency=0.85,   units_per_box=6.0,
+                max_concurrent_boxes=150),
 ]
 
 # ---------------------------------------------------------------------------
