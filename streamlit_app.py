@@ -400,12 +400,28 @@ if page == "⚙️ Settings":
                 v_upb   = st.number_input("Units per box",              value=float(area.units_per_box),step=1.0,  min_value=1.0, key="upb_" + area.id)
                 v_vol = to_cuft(v_vol_d)
                 v_box = to_cuft(v_box_d)
-                cap_boxes = int((v_vol * v_eff) / v_box) if v_box > 0 else 0
-                cap_units = int(cap_boxes * v_upb)
-                st.info("Capacity: " + str(cap_boxes) + " boxes  |  " + str(cap_units) + " units")
+                # Max concurrent boxes — only shown for Smart Bulk and Kitting
+                v_max_boxes = None
+                if area.has_box_cap or area.id in ("smart_bulk", "kitting"):
+                    st.markdown("---")
+                    st.markdown("**🔢 Max concurrent boxes** — hard cap for this work station")
+                    st.caption("Utilization is measured against this limit, not area volume. Set to 0 to use volume-based capacity only.")
+                    cur_max = area.max_concurrent_boxes if area.max_concurrent_boxes is not None else 0
+                    raw_max = st.number_input("Max boxes in station at one time",
+                        value=int(cur_max), step=10, min_value=0, key="maxb_" + area.id)
+                    v_max_boxes = int(raw_max) if raw_max > 0 else None
+                    if v_max_boxes:
+                        st.info("Hard cap active: capacity = **" + str(v_max_boxes) + " boxes**")
+                    else:
+                        st.info("No box cap — capacity determined by volume only")
+                vol_cap = int((v_vol * v_eff) / v_box) if v_box > 0 else 0
+                eff_cap = min(v_max_boxes, vol_cap) if v_max_boxes else vol_cap
+                cap_units = int(eff_cap * v_upb)
+                st.info("Effective capacity: **" + str(eff_cap) + " boxes**  |  **" + str(cap_units) + " units**")
                 area_updates[area.id] = dict(
                     volume_cuft=v_vol, avg_box_size_cuft=v_box,
-                    efficiency=v_eff,  units_per_box=v_upb)
+                    efficiency=v_eff,  units_per_box=v_upb,
+                    max_concurrent_boxes=v_max_boxes)
 
     st.markdown("---")
     st.subheader("Order types")
@@ -462,10 +478,12 @@ if page == "⚙️ Settings":
         area_map = {a.id: a for a in st.session_state.areas}
         for aid, u in area_updates.items():
             a = area_map[aid]
-            a.volume_cuft       = u["volume_cuft"]
-            a.avg_box_size_cuft = u["avg_box_size_cuft"]
-            a.efficiency        = u["efficiency"]
-            a.units_per_box     = u["units_per_box"]
+            a.volume_cuft           = u["volume_cuft"]
+            a.avg_box_size_cuft     = u["avg_box_size_cuft"]
+            a.efficiency            = u["efficiency"]
+            a.units_per_box         = u["units_per_box"]
+            if "max_concurrent_boxes" in u:
+                a.max_concurrent_boxes = u["max_concurrent_boxes"]
 
         ot_map = {o.id: o for o in st.session_state.order_types}
         for oid, u in order_updates.items():
@@ -548,18 +566,21 @@ elif page == "📦 Analysis":
 
         rows = []
         for a in snap.areas:
+            cap_src = "box cap" if a.area.has_box_cap else "volume"
             rows.append({
                 "Area":         a.area.name,
                 "Zone":         a.area.zone,
                 "Units/box":    int(a.area.units_per_box),
                 "Load (boxes)": str(int(a.load_boxes)),
-                "Cap (boxes)":  str(a.capacity_boxes),
+                "Cap (boxes)":  str(a.capacity_boxes) + (" 🔢" if a.area.has_box_cap else ""),
                 "Load (units)": str(int(a.load_units)),
                 "Cap (units)":  str(a.capacity_units),
+                "Cap source":   cap_src,
                 "Util %":       str(round(a.utilization_pct, 1)) + "%",
                 "Status":       status_label(a.utilization_pct),
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.caption("🔢 = hard box cap active — utilization measured against max concurrent boxes, not volume")
 
         st.subheader("Zone summary")
         zone_df = engine.zone_summary(multiplier)
@@ -580,9 +601,10 @@ elif page == "📦 Analysis":
     with tab2:
         st.subheader("Area detail — order contributions")
         for a in snap.areas:
+            cap_tag = " 🔢 box cap" if a.area.has_box_cap else ""
             with st.expander(
                 a.area.name + " — " + str(round(a.utilization_pct, 1)) + "%  |  "
-                + str(int(a.load_boxes)) + "/" + str(a.capacity_boxes) + " boxes  |  "
+                + str(int(a.load_boxes)) + "/" + str(a.capacity_boxes) + " boxes" + cap_tag + "  |  "
                 + str(int(a.load_units)) + "/" + str(a.capacity_units) + " units  |  "
                 + str(int(a.area.units_per_box)) + " u/box  " + status_label(a.utilization_pct),
                 expanded=True):
