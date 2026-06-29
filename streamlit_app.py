@@ -43,6 +43,36 @@ def status_label(pct):
     if pct >= 70:  return "🟠 WARNING"
     return "🟢 OK"
 
+
+# ── unit system ───────────────────────────────────────────────────────────────
+# Internal storage is always cubic feet.
+# All inputs/outputs convert to/from the selected display unit.
+
+UNITS = {
+    "cu ft":  {"label": "cu ft",  "symbol": "ft³",  "to_cuft": 1.0,          "from_cuft": 1.0},
+    "cu in":  {"label": "cu in",  "symbol": "in³",  "to_cuft": 1/1728,       "from_cuft": 1728.0},
+    "cu cm":  {"label": "cu cm",  "symbol": "cm³",  "to_cuft": 1/28316.8,    "from_cuft": 28316.8},
+    "cu m":   {"label": "cu m",   "symbol": "m³",   "to_cuft": 35.3147,      "from_cuft": 1/35.3147},
+}
+
+def to_display(cuft_value: float) -> float:
+    """Convert internal cu ft value to display unit."""
+    unit = st.session_state.get("display_unit", "cu ft")
+    return cuft_value * UNITS[unit]["from_cuft"]
+
+def to_cuft(display_value: float) -> float:
+    """Convert display unit value to internal cu ft."""
+    unit = st.session_state.get("display_unit", "cu ft")
+    return display_value * UNITS[unit]["to_cuft"]
+
+def unit_label() -> str:
+    unit = st.session_state.get("display_unit", "cu ft")
+    return UNITS[unit]["symbol"]
+
+def fmt_vol(cuft_value: float, decimals: int = 1) -> str:
+    """Format a volume in the current display unit."""
+    return f"{to_display(cuft_value):,.{decimals}f} {unit_label()}"
+
 if "areas" not in st.session_state:
     st.session_state.areas       = [copy.deepcopy(a) for a in DEFAULT_AREAS]
     st.session_state.order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
@@ -67,6 +97,17 @@ with st.sidebar:
     if nb:   st.error(f"⚠️ {nb} area(s) over capacity")
     elif nw: st.warning(f"△ {nw} area(s) near limit")
     else:    st.success("✓ All areas OK")
+    st.markdown("---")
+    st.caption("**Volume unit**")
+    if "display_unit" not in st.session_state:
+        st.session_state.display_unit = "cu ft"
+    selected_unit = st.selectbox(
+        "Unit", list(UNITS.keys()),
+        index=list(UNITS.keys()).index(st.session_state.display_unit),
+        label_visibility="collapsed", key="unit_selector")
+    if selected_unit != st.session_state.display_unit:
+        st.session_state.display_unit = selected_unit
+        st.rerun()
     st.markdown("---")
     st.caption("**Zone legend**")
     for zone, name in [("600","Paper"),("SMART_BULK","Smart Bulk"),
@@ -326,6 +367,23 @@ if page == "⚙️ Settings":
     st.title("⚙️ Settings")
     st.caption("Update area dimensions and order type splits, then click Save.")
 
+    # ── Unit converter ───────────────────────────────────────────────────────
+    with st.expander("🔁 Volume unit converter", expanded=False):
+        st.caption("Enter a value in any unit to see all equivalents instantly.")
+        cc1, cc2 = st.columns(2)
+        conv_val = cc1.number_input("Value", value=1.0, step=0.1, key="conv_val", min_value=0.0)
+        conv_from = cc2.selectbox("From unit", list(UNITS.keys()), key="conv_from")
+        val_in_cuft = conv_val * UNITS[conv_from]["to_cuft"]
+        st.markdown("**Equivalents:**")
+        rc = st.columns(4)
+        for i, (ukey, udata) in enumerate(UNITS.items()):
+            converted = val_in_cuft * udata["from_cuft"]
+            if ukey == conv_from:
+                rc[i].metric(udata["label"], f"{converted:,.4f}", delta="← input", delta_color="off")
+            else:
+                rc[i].metric(udata["label"], f"{converted:,.4f}")
+
+    st.markdown("---")
     st.subheader("Storage areas")
     area_updates = {}
     cols = st.columns(2)
@@ -333,10 +391,15 @@ if page == "⚙️ Settings":
         with cols[i % 2]:
             zone_str = "Staging" if area.is_staging else "Zone " + area.zone
             with st.expander("**" + area.name + "** — " + zone_str, expanded=True):
-                v_vol = st.number_input("Volume (cu ft)",       value=float(area.volume_cuft),       step=100.0, key="vol_" + area.id)
-                v_box = st.number_input("Avg box size (cu ft)", value=float(area.avg_box_size_cuft), step=0.1,   key="box_" + area.id)
-                v_eff = st.number_input("Efficiency (0-1)",     value=float(area.efficiency),        step=0.01,  min_value=0.1, max_value=1.0, key="eff_" + area.id)
-                v_upb = st.number_input("Units per box",        value=float(area.units_per_box),     step=1.0,   min_value=1.0, key="upb_" + area.id)
+                ul = unit_label()
+                disp_vol = to_display(area.volume_cuft)
+                disp_box = to_display(area.avg_box_size_cuft)
+                v_vol_d = st.number_input("Volume (" + ul + ")",       value=float(disp_vol),           step=float(max(0.1, round(to_display(100),1))), key="vol_" + area.id)
+                v_box_d = st.number_input("Avg box size (" + ul + ")", value=float(disp_box),           step=float(max(0.001, round(to_display(0.1),3))), key="box_" + area.id)
+                v_eff   = st.number_input("Efficiency (0-1)",           value=float(area.efficiency),   step=0.01, min_value=0.1, max_value=1.0, key="eff_" + area.id)
+                v_upb   = st.number_input("Units per box",              value=float(area.units_per_box),step=1.0,  min_value=1.0, key="upb_" + area.id)
+                v_vol = to_cuft(v_vol_d)
+                v_box = to_cuft(v_box_d)
                 cap_boxes = int((v_vol * v_eff) / v_box) if v_box > 0 else 0
                 cap_units = int(cap_boxes * v_upb)
                 st.info("Capacity: " + str(cap_boxes) + " boxes  |  " + str(cap_units) + " units")
