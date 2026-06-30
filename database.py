@@ -41,6 +41,80 @@ def get_client():
         return None
 
 
+def diagnose() -> dict:
+    """
+    Run through each step of the connection process and report exactly
+    where it fails. Used by the Settings page to show a real error
+    instead of a generic 'not connected' message.
+    """
+    result = {
+        "secrets_section_found": False,
+        "url_found": False,
+        "key_found": False,
+        "client_created": False,
+        "query_succeeded": False,
+        "error": None,
+        "url_preview": None,
+    }
+    try:
+        try:
+            has_secrets = "supabase" in st.secrets
+        except Exception:
+            result["error"] = (
+                "No secrets configured at all for this app. "
+                "On Streamlit Cloud: open your app -> click the ⋮ menu (bottom right) "
+                "-> Settings -> Secrets -> paste the [supabase] block -> Save -> "
+                "wait ~30 sec, then click ⋮ -> Reboot app."
+            )
+            return result
+
+        if not has_secrets:
+            result["error"] = (
+                "Secrets exist but no [supabase] section was found. "
+                "Check Streamlit Cloud → Settings → Secrets has a section "
+                "literally named [supabase] (lowercase, square brackets)."
+            )
+            return result
+        result["secrets_section_found"] = True
+
+        sec = st.secrets["supabase"]
+        url = sec.get("url", None)
+        key = sec.get("key", None)
+
+        if not url:
+            result["error"] = "Found [supabase] section but 'url' key is missing or empty."
+            return result
+        result["url_found"] = True
+        result["url_preview"] = url[:30] + "..." if len(url) > 30 else url
+
+        if not key:
+            result["error"] = "Found [supabase] section but 'key' key is missing or empty."
+            return result
+        result["key_found"] = True
+
+        from supabase import create_client
+        client = create_client(url, key)
+        result["client_created"] = True
+
+        # Try an actual query to confirm the table exists and credentials work
+        resp = client.table("warehouse_areas").select("*").limit(1).execute()
+        result["query_succeeded"] = True
+
+    except ImportError as e:
+        result["error"] = "supabase package not installed: " + str(e) + ". Check requirements.txt includes 'supabase'."
+    except Exception as e:
+        msg = str(e)
+        if "Invalid API key" in msg or "JWT" in msg:
+            result["error"] = "Connected but the API key was rejected. Double-check you copied the 'anon public' key, not a truncated or wrong key."
+        elif "relation" in msg.lower() and "does not exist" in msg.lower():
+            result["error"] = "Connected successfully, but the table 'warehouse_areas' doesn't exist yet. Run supabase_schema.sql in the Supabase SQL Editor."
+        elif "Name or service not known" in msg or "getaddrinfo" in msg:
+            result["error"] = "Could not reach the URL — check the project URL is correct and has no typos."
+        else:
+            result["error"] = "Unexpected error: " + msg
+    return result
+
+
 def is_db_configured() -> bool:
     return get_client() is not None
 
