@@ -90,13 +90,15 @@ import csv as csv_module
 from datetime import datetime
 
 # Column layout shared by both sections (unused columns are blank per row)
-TEMPLATE_COLS = [
-    "section",
-    # AREAS columns
+# Areas table — its own clean header, no blank columns
+AREA_COLS = [
     "area_id", "area_name", "zone",
     "volume_cuft", "avg_box_size_cuft", "efficiency", "units_per_box",
     "is_staging", "max_concurrent_boxes",
-    # ORDERS columns
+]
+
+# Orders table — its own clean header, no blank columns
+ORDER_COLS = [
     "order_id", "order_name",
     "daily_volume", "avg_units_per_order",
     "paper_pct", "consumable_pct",
@@ -104,123 +106,160 @@ TEMPLATE_COLS = [
     "packout_pct", "kitting_pct",
 ]
 
-def _blank():
-    return {c: "" for c in TEMPLATE_COLS}
 
 def config_to_csv_bytes(areas, order_types) -> bytes:
+    """
+    Build a single CSV with two clean tables stacked vertically:
+      [AREAS] header row + area rows
+      blank line
+      [ORDERS] header row + order rows
+    Each table has only its own relevant columns — no confusing blank cells.
+    """
     buf = io.StringIO()
     w = csv_module.writer(buf)
 
-    # ── instruction header ────────────────────────────────────────────────────
-    w.writerow(["# WAREHOUSE CAPACITY PLANNER — Configuration template"])
-    w.writerow(["# Fill in the values below and upload this file in the Settings page."])
-    w.writerow(["# Rows starting with # are ignored. Do not change column names."])
-    w.writerow(["# AREAS section: set physical dimensions for each storage area."])
-    w.writerow(["# ORDERS section: set volume and split percentages for each order type."])
-    w.writerow(["# Splits must total 100%: paper_pct+consumable_pct=100, cust1_pct+cust2_pct=100, packout_pct+kitting_pct=100"])
-    w.writerow(["#"])
-    w.writerow(["# COLUMN GUIDE"])
-    w.writerow(["# volume_cuft          Total cubic feet of the storage area"])
-    w.writerow(["# avg_box_size_cuft    Average size of one box in cubic feet"])
-    w.writerow(["# efficiency           Usable fraction 0-1 (e.g. 0.75 = 75% after aisles)"])
-    w.writerow(["# units_per_box        Average units that fit in one box in this area"])
-    w.writerow(["# max_concurrent_boxes Hard cap on boxes processed at once (leave blank = no cap)"])
-    w.writerow(["# paper_pct            % of order units drawn from 600-Paper zone"])
-    w.writerow(["# consumable_pct       % of order units drawn from 400-Consumables zone"])
-    w.writerow(["# cust1_pct            % of consumables routed to Zone 300 (Customer Spec 1)"])
-    w.writerow(["# cust2_pct            % of consumables routed to Zone 200 (Customer Spec 2)"])
-    w.writerow(["# packout_pct          % of 300/200 material going direct to Final/Packout"])
-    w.writerow(["# kitting_pct          % of 300/200 material going to Kitting first"])
-    w.writerow(["#"])
-
-    # ── column header ─────────────────────────────────────────────────────────
-    w.writerow(TEMPLATE_COLS)
-
-    # ── AREAS section ─────────────────────────────────────────────────────────
-    w.writerow(["# --- STORAGE AREAS (do not delete or rename existing area_id values) ---"])
-    for a in areas:
-        row = _blank()
-        row["section"]               = "AREAS"
-        row["area_id"]               = a.id
-        row["area_name"]             = a.name
-        row["zone"]                  = a.zone
-        row["volume_cuft"]           = a.volume_cuft
-        row["avg_box_size_cuft"]     = a.avg_box_size_cuft
-        row["efficiency"]            = a.efficiency
-        row["units_per_box"]         = a.units_per_box
-        row["is_staging"]            = "TRUE" if a.is_staging else "FALSE"
-        row["max_concurrent_boxes"]  = a.max_concurrent_boxes if a.max_concurrent_boxes is not None else ""
-        w.writerow([row[c] for c in TEMPLATE_COLS])
-
-    # spacer
+    # ── instructions ─────────────────────────────────────────────────────────
+    w.writerow(["WAREHOUSE CAPACITY PLANNER - CONFIGURATION TEMPLATE"])
+    w.writerow(["Lines starting with # are instructions and are ignored on upload."])
+    w.writerow(["Edit the numbers below in Excel, save as CSV (not xlsx), then upload."])
+    w.writerow([])
+    w.writerow(["# HOW THIS FILE IS ORGANIZED"])
+    w.writerow(["# Table 1 [AREAS]  = storage area settings"])
+    w.writerow(["# Table 2 [ORDERS] = order type settings"])
+    w.writerow(["# Do not rename area_id or order_id values - they are used as keys."])
+    w.writerow(["# Do not add or remove columns. Leave a cell blank only where noted."])
+    w.writerow([])
+    w.writerow(["# AREAS COLUMN GUIDE"])
+    w.writerow(["#   area_id               unique key - do not change"])
+    w.writerow(["#   area_name             display name - safe to edit"])
+    w.writerow(["#   zone                  zone code - do not change unless restructuring"])
+    w.writerow(["#   volume_cuft           total cubic feet of the storage area"])
+    w.writerow(["#   avg_box_size_cuft     average size of one box in cubic feet"])
+    w.writerow(["#   efficiency            usable fraction 0-1, e.g. 0.75 = 75% after aisles/racking"])
+    w.writerow(["#   units_per_box         average units that fit in one box in this area"])
+    w.writerow(["#   is_staging            TRUE or FALSE - leave as-is unless you know what this means"])
+    w.writerow(["#   max_concurrent_boxes  hard cap on boxes worked at once - leave BLANK for no cap"])
+    w.writerow([])
+    w.writerow(["# ORDERS COLUMN GUIDE"])
+    w.writerow(["#   order_id              unique key - do not change"])
+    w.writerow(["#   order_name            display name - safe to edit"])
+    w.writerow(["#   daily_volume          number of orders per day"])
+    w.writerow(["#   avg_units_per_order   average units per order"])
+    w.writerow(["#   paper_pct + consumable_pct        must add up to 100"])
+    w.writerow(["#   cust1_pct + cust2_pct             must add up to 100"])
+    w.writerow(["#   packout_pct + kitting_pct         must add up to 100"])
     w.writerow([])
 
-    # ── ORDERS section ────────────────────────────────────────────────────────
-    w.writerow(["# --- ORDER TYPES (paper_pct+consumable_pct=100, cust1+cust2=100, packout+kitting=100) ---"])
+    # ── Table 1: AREAS ───────────────────────────────────────────────────────
+    w.writerow(["[AREAS]"])
+    w.writerow(AREA_COLS)
+    for a in areas:
+        w.writerow([
+            a.id, a.name, a.zone,
+            a.volume_cuft, a.avg_box_size_cuft, a.efficiency, a.units_per_box,
+            "TRUE" if a.is_staging else "FALSE",
+            a.max_concurrent_boxes if a.max_concurrent_boxes is not None else "",
+        ])
+
+    w.writerow([])
+
+    # ── Table 2: ORDERS ──────────────────────────────────────────────────────
+    w.writerow(["[ORDERS]"])
+    w.writerow(ORDER_COLS)
     for ot in order_types:
-        row = _blank()
-        row["section"]              = "ORDERS"
-        row["order_id"]             = ot.id
-        row["order_name"]           = ot.name
-        row["daily_volume"]         = ot.daily_volume
-        row["avg_units_per_order"]  = ot.avg_units_per_order
-        row["paper_pct"]            = ot.storage_split.paper_pct
-        row["consumable_pct"]       = ot.storage_split.consumable_pct
-        row["cust1_pct"]            = ot.customer_split.cust1_pct
-        row["cust2_pct"]            = ot.customer_split.cust2_pct
-        row["packout_pct"]          = ot.kitting_split.packout_pct
-        row["kitting_pct"]          = ot.kitting_split.kitting_pct
-        w.writerow([row[c] for c in TEMPLATE_COLS])
+        w.writerow([
+            ot.id, ot.name,
+            ot.daily_volume, ot.avg_units_per_order,
+            ot.storage_split.paper_pct, ot.storage_split.consumable_pct,
+            ot.customer_split.cust1_pct, ot.customer_split.cust2_pct,
+            ot.kitting_split.packout_pct, ot.kitting_split.kitting_pct,
+        ])
 
     return buf.getvalue().encode("utf-8")
 
 
 def csv_bytes_to_config(file_bytes):
-    """Parse a template CSV and return (areas, order_types). Skips comment rows."""
-    text = file_bytes.decode("utf-8")
-    lines = [l for l in text.splitlines() if not l.strip().startswith("#") and l.strip()]
-    reader = csv_module.DictReader(io.StringIO(chr(10).join(lines)))
+    """
+    Parse the two-table CSV format produced by config_to_csv_bytes.
+    Looks for [AREAS] and [ORDERS] section markers, reads the header
+    row immediately after each, then reads rows until a blank line
+    or the next section marker.
+    """
+    text = file_bytes.decode("utf-8-sig")  # handles Excel's BOM prefix
+    raw_lines = text.splitlines()
+
+    def find_section(marker):
+        for i, line in enumerate(raw_lines):
+            if line.strip().upper() == marker:
+                return i
+        return -1
+
+    def read_table(start_idx):
+        """Read header + data rows starting right after the [SECTION] marker."""
+        if start_idx == -1:
+            return []
+        rows_text = []
+        i = start_idx + 1
+        while i < len(raw_lines):
+            line = raw_lines[i]
+            stripped = line.strip()
+            if stripped == "" or stripped.startswith("["):
+                break
+            if not stripped.startswith("#"):
+                rows_text.append(line)
+            i += 1
+        if not rows_text:
+            return []
+        reader = csv_module.DictReader(io.StringIO(chr(10).join(rows_text)))
+        return list(reader)
+
+    area_rows  = read_table(find_section("[AREAS]"))
+    order_rows = read_table(find_section("[ORDERS]"))
 
     areas, order_types = [], []
-    for row in reader:
-        sec = row.get("section", "").strip().upper()
 
-        if sec == "AREAS":
-            max_b = row.get("max_concurrent_boxes", "").strip()
-            max_b = int(float(max_b)) if max_b not in ("", None) else None
-            areas.append(StorageArea(
-                id=row["area_id"].strip(),
-                name=row["area_name"].strip(),
-                zone=row["zone"].strip(),
-                volume_cuft=float(row["volume_cuft"]),
-                avg_box_size_cuft=float(row["avg_box_size_cuft"]),
-                efficiency=float(row["efficiency"]),
-                units_per_box=float(row["units_per_box"]),
-                is_staging=row.get("is_staging","FALSE").strip().upper() == "TRUE",
-                max_concurrent_boxes=max_b,
-            ))
+    for row in area_rows:
+        max_b = (row.get("max_concurrent_boxes") or "").strip()
+        max_b = int(float(max_b)) if max_b else None
+        areas.append(StorageArea(
+            id=row["area_id"].strip(),
+            name=row["area_name"].strip(),
+            zone=row["zone"].strip(),
+            volume_cuft=float(row["volume_cuft"]),
+            avg_box_size_cuft=float(row["avg_box_size_cuft"]),
+            efficiency=float(row["efficiency"]),
+            units_per_box=float(row["units_per_box"]),
+            is_staging=(row.get("is_staging","FALSE").strip().upper() == "TRUE"),
+            max_concurrent_boxes=max_b,
+        ))
 
-        elif sec == "ORDERS":
-            order_types.append(OrderType(
-                id=row["order_id"].strip(),
-                name=row["order_name"].strip(),
-                daily_volume=int(float(row["daily_volume"])),
-                avg_units_per_order=int(float(row["avg_units_per_order"])),
-                storage_split=StorageSplit(
-                    paper_pct=float(row["paper_pct"]),
-                    consumable_pct=float(row["consumable_pct"])),
-                customer_split=CustomerSplit(
-                    cust1_pct=float(row["cust1_pct"]),
-                    cust2_pct=float(row["cust2_pct"])),
-                kitting_split=KittingSplit(
-                    packout_pct=float(row["packout_pct"]),
-                    kitting_pct=float(row["kitting_pct"])),
-            ))
+    for row in order_rows:
+        order_types.append(OrderType(
+            id=row["order_id"].strip(),
+            name=row["order_name"].strip(),
+            daily_volume=int(float(row["daily_volume"])),
+            avg_units_per_order=int(float(row["avg_units_per_order"])),
+            storage_split=StorageSplit(
+                paper_pct=float(row["paper_pct"]),
+                consumable_pct=float(row["consumable_pct"])),
+            customer_split=CustomerSplit(
+                cust1_pct=float(row["cust1_pct"]),
+                cust2_pct=float(row["cust2_pct"])),
+            kitting_split=KittingSplit(
+                packout_pct=float(row["packout_pct"]),
+                kitting_pct=float(row["kitting_pct"])),
+        ))
 
     if not areas:
-        raise ValueError("No AREAS rows found. Check the section column says AREAS.")
+        raise ValueError(
+            "No area rows found under [AREAS]. Make sure the [AREAS] marker "
+            "and its header row are intact and not modified."
+        )
     if not order_types:
-        raise ValueError("No ORDERS rows found. Check the section column says ORDERS.")
+        raise ValueError(
+            "No order rows found under [ORDERS]. Make sure the [ORDERS] marker "
+            "and its header row are intact and not modified."
+        )
 
     return areas, order_types
 
