@@ -75,85 +75,154 @@ def fmt_vol(cuft_value: float, decimals: int = 1) -> str:
     return f"{to_display(cuft_value):,.{decimals}f} {unit_label()}"
 
 
-# ── CSV save/load for areas and order types ──────────────────────────────────
+# ── Single-file CSV template ─────────────────────────────────────────────────
+# One CSV with a SECTION column keeps everything together and stays
+# human-readable — open in Excel, fill in, upload back.
+#
+# Format:
+#   Rows starting with # are instructions (ignored on import)
+#   section=AREAS      → storage area rows
+#   section=ORDERS     → order type rows
+#   All other columns  → field values (blanks are allowed for optional fields)
+
 import io
 import csv as csv_module
 from datetime import datetime
 
-AREA_FIELDS = [
-    "id", "name", "zone", "volume_cuft", "avg_box_size_cuft",
-    "efficiency", "units_per_box", "is_staging", "max_concurrent_boxes",
-]
-ORDER_FIELDS = [
-    "id", "name", "daily_volume", "avg_units_per_order",
+# Column layout shared by both sections (unused columns are blank per row)
+TEMPLATE_COLS = [
+    "section",
+    # AREAS columns
+    "area_id", "area_name", "zone",
+    "volume_cuft", "avg_box_size_cuft", "efficiency", "units_per_box",
+    "is_staging", "max_concurrent_boxes",
+    # ORDERS columns
+    "order_id", "order_name",
+    "daily_volume", "avg_units_per_order",
     "paper_pct", "consumable_pct",
     "cust1_pct", "cust2_pct",
     "packout_pct", "kitting_pct",
 ]
 
-def areas_to_csv_bytes(areas) -> bytes:
+def _blank():
+    return {c: "" for c in TEMPLATE_COLS}
+
+def config_to_csv_bytes(areas, order_types) -> bytes:
     buf = io.StringIO()
-    writer = csv_module.writer(buf)
-    writer.writerow(AREA_FIELDS)
+    w = csv_module.writer(buf)
+
+    # ── instruction header ────────────────────────────────────────────────────
+    w.writerow(["# WAREHOUSE CAPACITY PLANNER — Configuration template"])
+    w.writerow(["# Fill in the values below and upload this file in the Settings page."])
+    w.writerow(["# Rows starting with # are ignored. Do not change column names."])
+    w.writerow(["# AREAS section: set physical dimensions for each storage area."])
+    w.writerow(["# ORDERS section: set volume and split percentages for each order type."])
+    w.writerow(["# Splits must total 100%: paper_pct+consumable_pct=100, cust1_pct+cust2_pct=100, packout_pct+kitting_pct=100"])
+    w.writerow(["#"])
+    w.writerow(["# COLUMN GUIDE"])
+    w.writerow(["# volume_cuft          Total cubic feet of the storage area"])
+    w.writerow(["# avg_box_size_cuft    Average size of one box in cubic feet"])
+    w.writerow(["# efficiency           Usable fraction 0-1 (e.g. 0.75 = 75% after aisles)"])
+    w.writerow(["# units_per_box        Average units that fit in one box in this area"])
+    w.writerow(["# max_concurrent_boxes Hard cap on boxes processed at once (leave blank = no cap)"])
+    w.writerow(["# paper_pct            % of order units drawn from 600-Paper zone"])
+    w.writerow(["# consumable_pct       % of order units drawn from 400-Consumables zone"])
+    w.writerow(["# cust1_pct            % of consumables routed to Zone 300 (Customer Spec 1)"])
+    w.writerow(["# cust2_pct            % of consumables routed to Zone 200 (Customer Spec 2)"])
+    w.writerow(["# packout_pct          % of 300/200 material going direct to Final/Packout"])
+    w.writerow(["# kitting_pct          % of 300/200 material going to Kitting first"])
+    w.writerow(["#"])
+
+    # ── column header ─────────────────────────────────────────────────────────
+    w.writerow(TEMPLATE_COLS)
+
+    # ── AREAS section ─────────────────────────────────────────────────────────
+    w.writerow(["# --- STORAGE AREAS (do not delete or rename existing area_id values) ---"])
     for a in areas:
-        writer.writerow([
-            a.id, a.name, a.zone, a.volume_cuft, a.avg_box_size_cuft,
-            a.efficiency, a.units_per_box, a.is_staging,
-            a.max_concurrent_boxes if a.max_concurrent_boxes is not None else "",
-        ])
-    return buf.getvalue().encode("utf-8")
+        row = _blank()
+        row["section"]               = "AREAS"
+        row["area_id"]               = a.id
+        row["area_name"]             = a.name
+        row["zone"]                  = a.zone
+        row["volume_cuft"]           = a.volume_cuft
+        row["avg_box_size_cuft"]     = a.avg_box_size_cuft
+        row["efficiency"]            = a.efficiency
+        row["units_per_box"]         = a.units_per_box
+        row["is_staging"]            = "TRUE" if a.is_staging else "FALSE"
+        row["max_concurrent_boxes"]  = a.max_concurrent_boxes if a.max_concurrent_boxes is not None else ""
+        w.writerow([row[c] for c in TEMPLATE_COLS])
 
-def order_types_to_csv_bytes(order_types) -> bytes:
-    buf = io.StringIO()
-    writer = csv_module.writer(buf)
-    writer.writerow(ORDER_FIELDS)
+    # spacer
+    w.writerow([])
+
+    # ── ORDERS section ────────────────────────────────────────────────────────
+    w.writerow(["# --- ORDER TYPES (paper_pct+consumable_pct=100, cust1+cust2=100, packout+kitting=100) ---"])
     for ot in order_types:
-        writer.writerow([
-            ot.id, ot.name, ot.daily_volume, ot.avg_units_per_order,
-            ot.storage_split.paper_pct, ot.storage_split.consumable_pct,
-            ot.customer_split.cust1_pct, ot.customer_split.cust2_pct,
-            ot.kitting_split.packout_pct, ot.kitting_split.kitting_pct,
-        ])
+        row = _blank()
+        row["section"]              = "ORDERS"
+        row["order_id"]             = ot.id
+        row["order_name"]           = ot.name
+        row["daily_volume"]         = ot.daily_volume
+        row["avg_units_per_order"]  = ot.avg_units_per_order
+        row["paper_pct"]            = ot.storage_split.paper_pct
+        row["consumable_pct"]       = ot.storage_split.consumable_pct
+        row["cust1_pct"]            = ot.customer_split.cust1_pct
+        row["cust2_pct"]            = ot.customer_split.cust2_pct
+        row["packout_pct"]          = ot.kitting_split.packout_pct
+        row["kitting_pct"]          = ot.kitting_split.kitting_pct
+        w.writerow([row[c] for c in TEMPLATE_COLS])
+
     return buf.getvalue().encode("utf-8")
 
-def csv_bytes_to_areas(file_bytes) -> list:
-    text = file_bytes.decode("utf-8")
-    reader = csv_module.DictReader(io.StringIO(text))
-    result = []
-    for row in reader:
-        max_b = row.get("max_concurrent_boxes", "")
-        max_b = int(float(max_b)) if max_b not in ("", None) else None
-        result.append(StorageArea(
-            id=row["id"], name=row["name"], zone=row["zone"],
-            volume_cuft=float(row["volume_cuft"]),
-            avg_box_size_cuft=float(row["avg_box_size_cuft"]),
-            efficiency=float(row["efficiency"]),
-            units_per_box=float(row["units_per_box"]),
-            is_staging=(str(row.get("is_staging", "False")).strip().lower() == "true"),
-            max_concurrent_boxes=max_b,
-        ))
-    return result
 
-def csv_bytes_to_order_types(file_bytes) -> list:
+def csv_bytes_to_config(file_bytes):
+    """Parse a template CSV and return (areas, order_types). Skips comment rows."""
     text = file_bytes.decode("utf-8")
-    reader = csv_module.DictReader(io.StringIO(text))
-    result = []
+    lines = [l for l in text.splitlines() if not l.strip().startswith("#") and l.strip()]
+    reader = csv_module.DictReader(io.StringIO(chr(10).join(lines)))
+
+    areas, order_types = [], []
     for row in reader:
-        result.append(OrderType(
-            id=row["id"], name=row["name"],
-            daily_volume=int(float(row["daily_volume"])),
-            avg_units_per_order=int(float(row["avg_units_per_order"])),
-            storage_split=StorageSplit(
-                paper_pct=float(row["paper_pct"]),
-                consumable_pct=float(row["consumable_pct"])),
-            customer_split=CustomerSplit(
-                cust1_pct=float(row["cust1_pct"]),
-                cust2_pct=float(row["cust2_pct"])),
-            kitting_split=KittingSplit(
-                packout_pct=float(row["packout_pct"]),
-                kitting_pct=float(row["kitting_pct"])),
-        ))
-    return result
+        sec = row.get("section", "").strip().upper()
+
+        if sec == "AREAS":
+            max_b = row.get("max_concurrent_boxes", "").strip()
+            max_b = int(float(max_b)) if max_b not in ("", None) else None
+            areas.append(StorageArea(
+                id=row["area_id"].strip(),
+                name=row["area_name"].strip(),
+                zone=row["zone"].strip(),
+                volume_cuft=float(row["volume_cuft"]),
+                avg_box_size_cuft=float(row["avg_box_size_cuft"]),
+                efficiency=float(row["efficiency"]),
+                units_per_box=float(row["units_per_box"]),
+                is_staging=row.get("is_staging","FALSE").strip().upper() == "TRUE",
+                max_concurrent_boxes=max_b,
+            ))
+
+        elif sec == "ORDERS":
+            order_types.append(OrderType(
+                id=row["order_id"].strip(),
+                name=row["order_name"].strip(),
+                daily_volume=int(float(row["daily_volume"])),
+                avg_units_per_order=int(float(row["avg_units_per_order"])),
+                storage_split=StorageSplit(
+                    paper_pct=float(row["paper_pct"]),
+                    consumable_pct=float(row["consumable_pct"])),
+                customer_split=CustomerSplit(
+                    cust1_pct=float(row["cust1_pct"]),
+                    cust2_pct=float(row["cust2_pct"])),
+                kitting_split=KittingSplit(
+                    packout_pct=float(row["packout_pct"]),
+                    kitting_pct=float(row["kitting_pct"])),
+            ))
+
+    if not areas:
+        raise ValueError("No AREAS rows found. Check the section column says AREAS.")
+    if not order_types:
+        raise ValueError("No ORDERS rows found. Check the section column says ORDERS.")
+
+    return areas, order_types
 
 if "areas" not in st.session_state:
     _loaded_areas, _loaded_orders = db.load_all()
@@ -596,57 +665,84 @@ if page == "⚙️ Settings":
     st.markdown("---")
     st.subheader("💾 Save / Load configuration (CSV)")
     st.caption(
-        "Export your current areas and order types to CSV files, or upload "
-        "previously saved CSVs to restore a scenario. Values apply after upload."
+        "Download the template, fill it in Excel or any spreadsheet app, "
+        "then upload it here to apply your values."
     )
 
-    dl1, dl2 = st.columns(2)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    csv_data = config_to_csv_bytes(st.session_state.areas, st.session_state.order_types)
 
-    with dl1:
-        st.markdown("**Storage areas**")
+    col_dl, col_ul = st.columns(2)
+
+    with col_dl:
+        st.markdown("**Step 1 — Download template**")
+        st.caption(
+            "Contains your current values pre-filled. Edit numbers in Excel, "
+            "save as CSV, and upload. Comment rows (starting with #) explain each field."
+        )
         st.download_button(
-            "⬇️ Download areas CSV",
-            data=areas_to_csv_bytes(st.session_state.areas),
-            file_name="warehouse_areas_" + timestamp + ".csv",
+            "⬇️ Download configuration template (CSV)",
+            data=csv_data,
+            file_name="warehouse_config_" + timestamp + ".csv",
             mime="text/csv",
             use_container_width=True,
         )
-        up_areas = st.file_uploader("⬆️ Upload areas CSV", type=["csv"], key="upload_areas")
-        if up_areas is not None:
-            try:
-                new_areas = csv_bytes_to_areas(up_areas.getvalue())
-                if st.button("Apply uploaded areas", key="apply_areas", use_container_width=True):
-                    st.session_state.areas = new_areas
-                    st.success("Areas loaded from CSV.")
-                    st.rerun()
-            except Exception as e:
-                st.error("Could not parse areas CSV: " + str(e))
 
-    with dl2:
-        st.markdown("**Order types**")
-        st.download_button(
-            "⬇️ Download order types CSV",
-            data=order_types_to_csv_bytes(st.session_state.order_types),
-            file_name="warehouse_order_types_" + timestamp + ".csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-        up_orders = st.file_uploader("⬆️ Upload order types CSV", type=["csv"], key="upload_orders")
-        if up_orders is not None:
-            try:
-                new_orders = csv_bytes_to_order_types(up_orders.getvalue())
-                if st.button("Apply uploaded order types", key="apply_orders", use_container_width=True):
-                    st.session_state.order_types = new_orders
-                    st.success("Order types loaded from CSV.")
-                    st.rerun()
-            except Exception as e:
-                st.error("Could not parse order types CSV: " + str(e))
+    with col_ul:
+        st.markdown("**Step 2 — Upload filled template**")
+        st.caption("Upload the same CSV after editing. Both areas and order types load at once.")
+        uploaded = st.file_uploader(
+            "Choose CSV file", type=["csv"], key="upload_config",
+            label_visibility="collapsed")
 
-    st.caption(
-        "Tip: download both files to keep a backup of a scenario. "
-        "To restore it later, upload both CSVs and click Apply for each."
-    )
+        if uploaded is not None:
+            try:
+                preview_areas, preview_orders = csv_bytes_to_config(uploaded.getvalue())
+                st.success(
+                    "Parsed OK — " + str(len(preview_areas)) + " areas  ·  "
+                    + str(len(preview_orders)) + " order types. Click Apply to load.")
+
+                # show a quick preview so user can verify before applying
+                with st.expander("Preview imported values", expanded=False):
+                    st.markdown("**Areas**")
+                    st.dataframe(
+                        pd.DataFrame([{
+                            "Area": a.name, "Zone": a.zone,
+                            "Volume (cu ft)": a.volume_cuft,
+                            "Box size (cu ft)": a.avg_box_size_cuft,
+                            "Efficiency": a.efficiency,
+                            "Units/box": a.units_per_box,
+                            "Max boxes": a.max_concurrent_boxes or "—",
+                        } for a in preview_areas]),
+                        use_container_width=True, hide_index=True)
+                    st.markdown("**Order types**")
+                    st.dataframe(
+                        pd.DataFrame([{
+                            "Order": ot.name,
+                            "Daily vol": ot.daily_volume,
+                            "Avg units": ot.avg_units_per_order,
+                            "Paper %": ot.storage_split.paper_pct,
+                            "Consumable %": ot.storage_split.consumable_pct,
+                            "Cust1 %": ot.customer_split.cust1_pct,
+                            "Cust2 %": ot.customer_split.cust2_pct,
+                            "Packout %": ot.kitting_split.packout_pct,
+                            "Kitting %": ot.kitting_split.kitting_pct,
+                        } for ot in preview_orders]),
+                        use_container_width=True, hide_index=True)
+
+                if st.button("✅ Apply imported configuration", type="primary", use_container_width=True):
+                    st.session_state.areas = preview_areas
+                    st.session_state.order_types = preview_orders
+                    if db.is_db_configured():
+                        db.save_all(preview_areas, preview_orders)
+                        st.success("Configuration loaded and saved to database.")
+                    else:
+                        st.success("Configuration loaded (session only — no database configured).")
+                    st.rerun()
+
+            except Exception as e:
+                st.error("Could not parse CSV: " + str(e))
+                st.caption("Make sure you uploaded the correct template file without renaming columns.")
 
     st.markdown("---")
     st.subheader("🗄️ Database controls")
