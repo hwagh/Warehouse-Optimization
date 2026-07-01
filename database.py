@@ -134,11 +134,15 @@ def save_areas(areas: List[StorageArea]) -> bool:
                 "area_id":               a.id,
                 "name":                  a.name,
                 "zone":                  a.zone,
-                "volume_cuft":           a.volume_cuft,
-                "avg_box_size_cuft":     a.avg_box_size_cuft,
+                "rack_length_cuft":      a.rack_length_cuft,
+                "rack_depth_cuft":       a.rack_depth_cuft,
+                "rack_height_cuft":      a.rack_height_cuft,
+                "num_racks":             a.num_racks,
+                "box_length_cuft":       a.box_length_cuft,
+                "box_depth_cuft":        a.box_depth_cuft,
+                "box_height_cuft":       a.box_height_cuft,
                 "efficiency":            a.efficiency,
                 "units_per_box":         a.units_per_box,
-                "is_staging":            a.is_staging,
                 "max_concurrent_boxes":  a.max_concurrent_boxes,
             })
         client.table("warehouse_areas").insert(rows).execute()
@@ -161,11 +165,15 @@ def load_areas() -> Optional[List[StorageArea]]:
         for row in rows:
             result.append(StorageArea(
                 id=row["area_id"], name=row["name"], zone=row["zone"],
-                volume_cuft=float(row["volume_cuft"]),
-                avg_box_size_cuft=float(row["avg_box_size_cuft"]),
+                rack_length_cuft=float(row["rack_length_cuft"]),
+                rack_depth_cuft=float(row["rack_depth_cuft"]),
+                rack_height_cuft=float(row["rack_height_cuft"]),
+                num_racks=int(row["num_racks"]),
+                box_length_cuft=float(row["box_length_cuft"]),
+                box_depth_cuft=float(row["box_depth_cuft"]),
+                box_height_cuft=float(row["box_height_cuft"]),
                 efficiency=float(row["efficiency"]),
                 units_per_box=float(row["units_per_box"]),
-                is_staging=bool(row["is_staging"]),
                 max_concurrent_boxes=(
                     int(row["max_concurrent_boxes"])
                     if row.get("max_concurrent_boxes") is not None else None
