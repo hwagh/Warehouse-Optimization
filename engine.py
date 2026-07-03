@@ -9,7 +9,7 @@ Flow rules:
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
@@ -142,7 +142,7 @@ class WarehouseEngine:
         )
         p200 = sum(
             ot.units_paper(multiplier) * (ot.customer_split.cust2_pct / 100)
-            / (next((a for a in self.areas if a.zone == "300"), None) or type("", (), {"units_per_box": 1})()).units_per_box
+            / (next((a for a in self.areas if a.zone == "200"), None) or type("", (), {"units_per_box": 1})()).units_per_box
             for ot in self.order_types
         )
         c300 = sum(ot.units_cust1(multiplier) / a.units_per_box
@@ -263,6 +263,40 @@ class WarehouseEngine:
             "efficiency": a.efficiency, "units_per_box": a.units_per_box,
             "capacity_boxes": a.capacity_boxes, "capacity_units": a.capacity_units,
         } for a in self.areas])
+
+    def order_impact(self, order_id, max_multiplier=3.0, steps=10):
+        """
+        Scale ONLY the given order type from x1..max_multiplier (others held at
+        x1.0) and report that order's box contribution to each area it touches,
+        alongside the area's resulting total load, capacity, and utilization.
+        """
+        base = next((o for o in self.order_types if o.id == order_id), None)
+        if base is None:
+            return pd.DataFrame()
+
+        rows = []
+        step = (max_multiplier - 1.0) / max(steps - 1, 1)
+        m = 1.0
+        while m <= max_multiplier + 1e-9:
+            scaled = replace(base, daily_volume=int(round(base.daily_volume * m)))
+            others = [o for o in self.order_types if o.id != order_id]
+            temp = WarehouseEngine(areas=self.areas, order_types=others + [scaled])
+            snap = temp.snapshot(multiplier=1.0)
+            for a in snap.areas:
+                from_order = a.contributing_orders.get(order_id, 0.0)
+                if from_order <= 0:
+                    continue
+                rows.append({
+                    "order_multiplier": round(m, 2),
+                    "area":             a.area.name,
+                    "load_from_order":  round(from_order, 1),
+                    "total_load":       round(a.load_boxes, 1),
+                    "capacity":         a.capacity_boxes,
+                    "utilization_pct":  round(a.utilization_pct, 1),
+                    "status":           a.status,
+                })
+            m += step
+        return pd.DataFrame(rows)
 
     def order_bom_summary(self, multiplier=1.0):
         rows = []
