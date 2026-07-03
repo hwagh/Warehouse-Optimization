@@ -47,8 +47,8 @@ def report_snapshot(snap: WarehouseSnapshot, title: str = "Current state"):
 
     # Summary metrics
     cols = [
-        Panel(f"[bold]{snap.total_capacity:,}[/bold]\nboxes", title="Total capacity", border_style="dim"),
-        Panel(f"[bold]{snap.total_load:,.0f}[/bold]\nboxes", title="Current load", border_style="dim"),
+        Panel(f"[bold]{snap.total_capacity_boxes:,}[/bold]\nboxes", title="Total capacity", border_style="dim"),
+        Panel(f"[bold]{snap.total_load_boxes:,.0f}[/bold]\nboxes", title="Current load", border_style="dim"),
         Panel(
             Text(f"{snap.overall_utilization:.1f}%", style="bold " + (
                 "red" if snap.overall_utilization >= 100 else
@@ -81,7 +81,7 @@ def report_snapshot(snap: WarehouseSnapshot, title: str = "Current state"):
         sc = status_color(a.status)
         tbl.add_row(
             a.area.name,
-            " · ".join(a.area.zones),
+            a.area.zone,
             f"{a.load_boxes:,.0f}",
             f"{a.capacity_boxes:,}",
             util_bar(a.utilization_pct),
@@ -249,8 +249,8 @@ def report_capacity_setup(engine: WarehouseEngine):
     for _, row in df.iterrows():
         tbl.add_row(
             row["area"],
-            row["zones"],
-            f"{row['volume_cuft']:,}",
+            row["zone"],
+            f"{row['volume_cuft']:,.0f}",
             f"{row['avg_box_size_cuft']:.1f}",
             f"{row['efficiency']*100:.0f}%",
             f"{row['capacity_boxes']:,}",
@@ -267,23 +267,24 @@ def report_capacity_setup(engine: WarehouseEngine):
 def report_order_types(engine: WarehouseEngine):
     console.print(Rule("[bold]Order type configuration[/bold]", style="blue"))
 
-    area_ids = [a.id for a in engine.areas]
-    area_names = [a.name for a in engine.areas]
-
     tbl = Table(box=box.SIMPLE_HEAVY, pad_edge=False)
     tbl.add_column("ID", style="bold", min_width=5)
     tbl.add_column("Name", min_width=22)
     tbl.add_column("Daily vol.", justify="right", min_width=10)
-    tbl.add_column("Avg qty/order", justify="right", min_width=13)
-    for n in area_names:
-        tbl.add_column(n, justify="center", min_width=9)
+    tbl.add_column("Avg units/order", justify="right", min_width=15)
+    tbl.add_column("Split 1\n600 / 400", justify="center", min_width=11)
+    tbl.add_column("Split 2\n300 / 200", justify="center", min_width=11)
+    tbl.add_column("Split 3\npackout / kit", justify="center", min_width=13)
 
     for ot in engine.order_types:
-        weights = [
-            f"[green]{ot.area_weights[aid]:.1f}[/green]" if aid in ot.area_weights else "[dim]—[/dim]"
-            for aid in area_ids
-        ]
-        tbl.add_row(ot.id, ot.name, str(ot.daily_volume), str(ot.avg_qty_per_order), *weights)
+        tbl.add_row(
+            ot.id, ot.name,
+            str(ot.daily_volume),
+            str(ot.avg_units_per_order),
+            f"{ot.storage_split.paper_pct:.0f} / {ot.storage_split.consumable_pct:.0f}",
+            f"{ot.customer_split.cust1_pct:.0f} / {ot.customer_split.cust2_pct:.0f}",
+            f"{ot.kitting_split.packout_pct:.0f} / {ot.kitting_split.kitting_pct:.0f}",
+        )
 
     console.print(tbl)
     console.print()
@@ -297,11 +298,13 @@ def main():
     engine = WarehouseEngine()
     snap_1x = engine.snapshot(multiplier=1.0)
 
+    area_list  = " · ".join(a.name for a in engine.areas)
+    order_list = " · ".join(o.id for o in engine.order_types)
     console.print()
     console.print(Panel(
         "[bold white]Warehouse Capacity Planner[/bold white]\n"
-        "[dim]Areas: Dock · Back wall · Bulk · Mez · Packouts[/dim]\n"
-        "[dim]Orders: BE · BW · CX · DR · SB · SO · SR · SW[/dim]",
+        "[dim]Areas: " + area_list + "[/dim]\n"
+        "[dim]Orders: " + order_list + "[/dim]",
         border_style="blue",
         padding=(0, 2),
     ))
