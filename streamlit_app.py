@@ -26,6 +26,60 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Global "compact mode" — shrinks padding, gaps, headers, tables, metrics ──
+# Injected once; applies to every page. Pure CSS, so unmatched rules are no-ops.
+st.markdown("""
+<style>
+/* reclaim the big empty margin at the top + sides of the page */
+.block-container, [data-testid="stMainBlockContainer"] {
+    padding-top: 1.1rem !important;
+    padding-bottom: 1rem !important;
+    padding-left: 1.6rem !important;
+    padding-right: 1.6rem !important;
+    max-width: 100% !important;
+}
+/* tighten the vertical gap between stacked elements */
+[data-testid="stVerticalBlock"] { gap: 0.45rem !important; }
+[data-testid="stHorizontalBlock"] { gap: 0.5rem !important; }
+/* smaller, tighter headings */
+h1, [data-testid="stHeading"] h1 { font-size: 1.5rem  !important; margin: .1rem 0 .3rem 0 !important; }
+h2 { font-size: 1.2rem  !important; margin: .2rem 0 !important; padding: 0 !important; }
+h3 { font-size: 1.02rem !important; margin: .15rem 0 !important; padding: 0 !important; }
+/* captions + small text */
+[data-testid="stCaptionContainer"], .stCaption { font-size: .74rem !important; margin: 0 !important; }
+/* markdown paragraph spacing */
+[data-testid="stMarkdownContainer"] p { margin-bottom: .25rem !important; line-height: 1.3 !important; }
+/* thin dividers */
+hr { margin: .35rem 0 !important; }
+/* compact metrics */
+[data-testid="stMetric"] { padding: .2rem .4rem !important; }
+[data-testid="stMetricValue"] { font-size: 1.05rem !important; }
+[data-testid="stMetricLabel"] { font-size: .68rem !important; }
+[data-testid="stMetricLabel"] p { font-size: .68rem !important; }
+/* dataframes / data_editor: smaller font + rows */
+[data-testid="stDataFrame"], [data-testid="stDataEditor"] { font-size: .78rem !important; }
+[data-testid="stDataFrame"] div, [data-testid="stDataEditor"] div { line-height: 1.15 !important; }
+/* expanders: tight header + body */
+[data-testid="stExpander"] summary { padding: .3rem .55rem !important; font-size: .85rem !important; }
+[data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding: .3rem .6rem !important; }
+/* buttons: less padding */
+.stButton button, [data-testid="stDownloadButton"] button, [data-testid="baseButton-primary"] {
+    padding: .3rem .7rem !important; min-height: 0 !important;
+}
+/* alert / info / success boxes: tighter */
+[data-testid="stAlert"], [data-testid="stAlertContainer"] { padding: .4rem .6rem !important; }
+[data-testid="stAlert"] p { margin: 0 !important; font-size: .8rem !important; }
+/* number inputs a touch shorter */
+[data-testid="stNumberInput"] input { padding-top: .2rem !important; padding-bottom: .2rem !important; }
+/* tabs: tighter tab bar */
+[data-testid="stTabs"] [data-baseweb="tab"] { padding: .3rem .7rem !important; }
+[data-testid="stTabs"] [data-baseweb="tab-list"] { gap: .2rem !important; }
+/* sidebar padding */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .35rem !important; }
+[data-testid="stSidebar"] .block-container { padding-top: 1rem !important; }
+</style>
+""", unsafe_allow_html=True)
+
 ZONE_COLORS = {
     "600": "#4f6ef7",
     "400": "#06b6d4", "300": "#10b981",
@@ -495,7 +549,7 @@ if page == "🏭 Material flow":
             bordercolor="#2e3250", borderwidth=1)
 
         fig.update_layout(
-            height=750,
+            height=540,
             margin=dict(l=10, r=10, t=20, b=10),
             paper_bgcolor="#0f1117",
             plot_bgcolor="#0f1117",
@@ -505,7 +559,7 @@ if page == "🏭 Material flow":
         )
         return fig
 
-    st.plotly_chart(make_flow_diagram(get_engine()), use_container_width=True)
+    st.plotly_chart(make_flow_diagram(get_engine()), width="stretch")
     st.markdown("---")
 
     engine = get_engine()
@@ -582,136 +636,162 @@ def _render_unit_converter():
 
 
 def _render_area_settings():
-    """Draws the storage-area editors and returns the collected updates dict."""
+    """Editable grid of ALL storage areas — one row each, no vertical scrolling."""
     st.subheader("Storage areas")
-    st.caption("Set rack dimensions and number of racks — volume is calculated automatically.")
-    area_updates = {}
-    cols = st.columns(2)
-    for i, area in enumerate(st.session_state.areas):
-        with cols[i % 2]:
-            with st.expander("**" + area.name + "** — Zone " + area.zone, expanded=True):
-                ul = unit_label()
+    ul = unit_label()
+    st.caption(
+        "Every area is one row — edit any cell directly. Rack and box dimensions are in "
+        + ul + ". Capacity updates live in the preview below; changes apply when you hit Save."
+    )
 
-                # ── Rack dimensions ───────────────────────────────────────
-                st.markdown("**Rack dimensions**")
-                rc1, rc2, rc3 = st.columns(3)
-                v_rlen = rc1.number_input("Length (" + ul + ")", value=float(to_display(area.rack_length_cuft)), step=float(max(0.1, round(to_display(1),2))), min_value=0.1, key="rlen_" + area.id)
-                v_rdep = rc2.number_input("Depth (" + ul + ")",  value=float(to_display(area.rack_depth_cuft)),  step=float(max(0.1, round(to_display(1),2))), min_value=0.1, key="rdep_" + area.id)
-                v_rhgt = rc3.number_input("Height (" + ul + ")", value=float(to_display(area.rack_height_cuft)), step=float(max(0.1, round(to_display(1),2))), min_value=0.1, key="rhgt_" + area.id)
+    df = pd.DataFrame([{
+        "ID":        a.id,
+        "Area":      a.name,
+        "Zone":      a.zone,
+        "Rack L":    round(to_display(a.rack_length_cuft), 2),
+        "Rack D":    round(to_display(a.rack_depth_cuft), 2),
+        "Rack H":    round(to_display(a.rack_height_cuft), 2),
+        "# Racks":   int(a.num_racks),
+        "Box L":     round(to_display(a.box_length_cuft), 3),
+        "Box W":     round(to_display(a.box_depth_cuft), 3),
+        "Box H":     round(to_display(a.box_height_cuft), 3),
+        "Eff.":      float(a.efficiency),
+        "Units/box": float(a.units_per_box),
+        "Max boxes": int(a.max_concurrent_boxes) if a.max_concurrent_boxes is not None else 0,
+    } for a in st.session_state.areas]).set_index("ID")
 
-                v_nracks = st.number_input("Number of racks", value=int(area.num_racks), step=1, min_value=1, key="nrk_" + area.id)
+    row_h    = 29
+    grid_h   = int((len(df) + 1) * row_h + 3)
+    edited = st.data_editor(
+        df, key="areas_editor", hide_index=True, num_rows="fixed",
+        width="stretch", height=grid_h, row_height=row_h,
+        column_config={
+            "Area":      st.column_config.TextColumn("Area", width="medium"),
+            "Zone":      st.column_config.TextColumn("Zone", disabled=True, width="small"),
+            "Rack L":    st.column_config.NumberColumn("Rack L (" + ul + ")", min_value=0.001, step=0.1,  format="%.2f"),
+            "Rack D":    st.column_config.NumberColumn("Rack D (" + ul + ")", min_value=0.001, step=0.1,  format="%.2f"),
+            "Rack H":    st.column_config.NumberColumn("Rack H (" + ul + ")", min_value=0.001, step=0.1,  format="%.2f"),
+            "# Racks":   st.column_config.NumberColumn("# Racks",  min_value=1,     step=1,    format="%d"),
+            "Box L":     st.column_config.NumberColumn("Box L (" + ul + ")", min_value=0.001, step=0.05, format="%.3f"),
+            "Box W":     st.column_config.NumberColumn("Box W (" + ul + ")", min_value=0.001, step=0.05, format="%.3f"),
+            "Box H":     st.column_config.NumberColumn("Box H (" + ul + ")", min_value=0.001, step=0.05, format="%.3f"),
+            "Eff.":      st.column_config.NumberColumn("Eff. (0–1)", min_value=0.1, max_value=1.0, step=0.01, format="%.2f"),
+            "Units/box": st.column_config.NumberColumn("Units/box", min_value=1.0, step=1.0, format="%.0f"),
+            "Max boxes": st.column_config.NumberColumn("Max boxes", min_value=0, step=10, format="%d",
+                                                       help="Optional hard cap. 0 = no cap (volume-based)."),
+        },
+    )
 
-                v_rlen_cuft = to_cuft(v_rlen)
-                v_rdep_cuft = to_cuft(v_rdep)
-                v_rhgt_cuft = to_cuft(v_rhgt)
-                rack_vol_cuft = v_rlen_cuft * v_rdep_cuft * v_rhgt_cuft
-                total_vol_cuft = rack_vol_cuft * v_nracks
+    # ── build updates + live capacity preview from the edited grid ────────────
+    area_updates, prev_rows = {}, []
+    for aid, row in edited.iterrows():
+        rl, rd, rh = to_cuft(row["Rack L"]), to_cuft(row["Rack D"]), to_cuft(row["Rack H"])
+        bl, bw, bh = to_cuft(row["Box L"]),  to_cuft(row["Box W"]),  to_cuft(row["Box H"])
+        racks = int(row["# Racks"]); eff = float(row["Eff."]); upb = float(row["Units/box"])
+        max_raw = int(row["Max boxes"]); max_b = max_raw if max_raw > 0 else None
 
-                st.caption(
-                    "Single rack: " + str(round(to_display(rack_vol_cuft), 2)) + " " + ul +
-                    "  ·  Total volume: " + str(round(to_display(total_vol_cuft), 1)) + " " + ul
-                )
+        total_vol = rl * rd * rh * racks
+        box_vol   = bl * bw * bh
+        vol_cap   = int((total_vol * eff) / box_vol) if box_vol > 0 else 0
+        cap       = min(max_b, vol_cap) if max_b else vol_cap
 
-                st.markdown("---")
+        area_updates[aid] = dict(
+            name=str(row["Area"]),
+            rack_length_cuft=rl, rack_depth_cuft=rd, rack_height_cuft=rh,
+            num_racks=racks,
+            box_length_cuft=bl, box_depth_cuft=bw, box_height_cuft=bh,
+            efficiency=eff, units_per_box=upb, max_concurrent_boxes=max_b,
+        )
+        prev_rows.append({
+            "Area":                 str(row["Area"]),
+            "Volume (" + ul + ")":  round(to_display(total_vol), 1),
+            "Capacity (boxes)":     cap,
+            "Capacity (units)":     int(cap * upb),
+            "Cap source":           "🔢 box cap" if (max_b and max_b < vol_cap) else "volume",
+        })
 
-                v_eff = st.number_input("Efficiency (0–1)", value=float(area.efficiency), step=0.01, min_value=0.1, max_value=1.0, key="eff_" + area.id, help="Usable fraction after aisles and stacking limits, e.g. 0.75 = 75%")
-
-                st.markdown("**Avg box dimensions**")
-                bc1, bc2, bc3 = st.columns(3)
-                v_blen = bc1.number_input("Length (" + ul + ")", value=float(to_display(area.box_length_cuft)), step=float(max(0.01, round(to_display(0.1), 3))), min_value=0.001, key="blen_" + area.id)
-                v_bdep = bc2.number_input("Width (" + ul + ")",  value=float(to_display(area.box_depth_cuft)),  step=float(max(0.01, round(to_display(0.1), 3))), min_value=0.001, key="bdep_" + area.id)
-                v_bhgt = bc3.number_input("Height (" + ul + ")", value=float(to_display(area.box_height_cuft)), step=float(max(0.01, round(to_display(0.1), 3))), min_value=0.001, key="bhgt_" + area.id)
-                v_blen_cuft = to_cuft(v_blen)
-                v_bdep_cuft = to_cuft(v_bdep)
-                v_bhgt_cuft = to_cuft(v_bhgt)
-                v_box_cuft = v_blen_cuft * v_bdep_cuft * v_bhgt_cuft
-                st.caption("Box volume: " + str(round(to_display(v_box_cuft), 3)) + " " + ul)
-
-                v_upb = st.number_input("Units per box", value=float(area.units_per_box), step=1.0, min_value=1.0, key="upb_" + area.id)
-
-                st.markdown("---")
-                st.markdown("**🔢 Max concurrent boxes** *(optional hard cap)*")
-                st.caption("Set a limit if this area has a physical processing constraint. Leave 0 for no cap.")
-                cur_max = area.max_concurrent_boxes if area.max_concurrent_boxes is not None else 0
-                raw_max = st.number_input("Max boxes", value=int(cur_max), step=10, min_value=0, key="maxb_" + area.id, label_visibility="collapsed")
-                v_max_boxes = int(raw_max) if raw_max > 0 else None
-
-                vol_cap = int((total_vol_cuft * v_eff) / v_box_cuft) if v_box_cuft > 0 else 0
-                eff_cap = min(v_max_boxes, vol_cap) if v_max_boxes else vol_cap
-                cap_units = int(eff_cap * v_upb)
-                cap_label = " (box cap active)" if v_max_boxes and v_max_boxes < vol_cap else " (volume-based)"
-                st.info(
-                    "Volume: **" + str(round(to_display(total_vol_cuft), 1)) + " " + ul + "**"
-                    + "  ·  Capacity: **" + str(eff_cap) + " boxes**"
-                    + "  ·  **" + str(cap_units) + " units**"
-                    + cap_label
-                )
-
-                area_updates[area.id] = dict(
-                    rack_length_cuft=v_rlen_cuft,
-                    rack_depth_cuft=v_rdep_cuft,
-                    rack_height_cuft=v_rhgt_cuft,
-                    num_racks=int(v_nracks),
-                    box_length_cuft=v_blen_cuft,
-                    box_depth_cuft=v_bdep_cuft,
-                    box_height_cuft=v_bhgt_cuft,
-                    efficiency=v_eff,
-                    units_per_box=v_upb,
-                    max_concurrent_boxes=v_max_boxes,
-                )
+    st.caption("**Live capacity preview** — recalculates as you type, applied on Save:")
+    prev_df = pd.DataFrame(prev_rows)
+    st.dataframe(prev_df, hide_index=True, width="stretch",
+                 height=int((len(prev_df) + 1) * row_h + 3), row_height=row_h)
     return area_updates
 
 
 def _render_order_settings():
-    """Draws the order-type editors and returns the collected updates dict."""
+    """Editable grid of ALL order types — one row each, with live split checks."""
     st.subheader("Order types")
-    st.caption("Configure volume and three independent splits for each order type.")
+    st.caption(
+        "Every order type is one row — edit any cell directly. The three split pairs must "
+        "each total 100% (600+400, 300+200, packout+kitting). Changes apply when you hit Save."
+    )
 
-    order_updates = {}
-    for ot in st.session_state.order_types:
-        with st.expander("**" + ot.name + "**", expanded=True):
-            c1, c2 = st.columns(2)
-            v_vol = c1.number_input("Daily volume (orders)", value=int(ot.daily_volume),        step=1, min_value=1, key="ovol_" + ot.id)
-            v_qty = c2.number_input("Avg units / order",     value=int(ot.avg_units_per_order), step=1, min_value=1, key="oqty_" + ot.id)
+    df = pd.DataFrame([{
+        "ID":        ot.id,
+        "Order":     ot.name,
+        "Daily vol": int(ot.daily_volume),
+        "Avg units": int(ot.avg_units_per_order),
+        "600 %":     float(ot.storage_split.paper_pct),
+        "400 %":     float(ot.storage_split.consumable_pct),
+        "300 %":     float(ot.customer_split.cust1_pct),
+        "200 %":     float(ot.customer_split.cust2_pct),
+        "Packout %": float(ot.kitting_split.packout_pct),
+        "Kitting %": float(ot.kitting_split.kitting_pct),
+    } for ot in st.session_state.order_types]).set_index("ID")
 
-            st.markdown("---")
-            st.markdown("**Split 1 - Storage** | 600% + 400% must total 100%")
-            s1c1, s1c2 = st.columns(2)
-            v_paper = s1c1.number_input("600 Paper %",       value=float(ot.storage_split.paper_pct),      step=1.0, min_value=0.0, max_value=100.0, key="paper_" + ot.id)
-            v_cons  = s1c2.number_input("400 Consumables %", value=float(ot.storage_split.consumable_pct), step=1.0, min_value=0.0, max_value=100.0, key="cons_"  + ot.id)
-            s1t = v_paper + v_cons
-            if abs(s1t - 100) > 0.5:
-                st.warning("Storage split totals " + str(int(s1t)) + "% — must be 100%")
-            else:
-                st.success("Storage split OK: " + str(int(v_paper)) + "% Paper + " + str(int(v_cons)) + "% Consumables = 100%")
+    def pct(label):
+        return st.column_config.NumberColumn(label, min_value=0.0, max_value=100.0, step=1.0, format="%.0f")
 
-            st.markdown("---")
-            st.markdown("**Split 2 - Customer** | 300% + 200% must total 100%  *(applied to Consumables portion only)*")
-            s2c1, s2c2 = st.columns(2)
-            v_c1 = s2c1.number_input("to Zone 300 %", value=float(ot.customer_split.cust1_pct), step=1.0, min_value=0.0, max_value=100.0, key="c1_" + ot.id)
-            v_c2 = s2c2.number_input("to Zone 200 %", value=float(ot.customer_split.cust2_pct), step=1.0, min_value=0.0, max_value=100.0, key="c2_" + ot.id)
-            s2t = v_c1 + v_c2
-            if abs(s2t - 100) > 0.5:
-                st.warning("Customer split totals " + str(int(s2t)) + "% — must be 100%")
-            else:
-                st.success("Customer split OK: " + str(int(v_c1)) + "% Zone 300 + " + str(int(v_c2)) + "% Zone 200 = 100%")
+    row_h  = 29
+    grid_h = int((len(df) + 1) * row_h + 3)
+    edited = st.data_editor(
+        df, key="orders_editor", hide_index=True, num_rows="fixed",
+        width="stretch", height=grid_h, row_height=row_h,
+        column_config={
+            "Order":     st.column_config.TextColumn("Order", width="medium"),
+            "Daily vol": st.column_config.NumberColumn("Daily vol", min_value=1, step=1, format="%d"),
+            "Avg units": st.column_config.NumberColumn("Avg units", min_value=1, step=1, format="%d"),
+            "600 %":     pct("600 Paper %"),
+            "400 %":     pct("400 Cons %"),
+            "300 %":     pct("300 Cust1 %"),
+            "200 %":     pct("200 Cust2 %"),
+            "Packout %": pct("Packout %"),
+            "Kitting %": pct("Kitting %"),
+        },
+    )
 
-            st.markdown("---")
-            st.markdown("**Split 3 - Kitting** | Packout% + Kitting% must total 100%  *(of 300/200 material)*")
-            s3c1, s3c2 = st.columns(2)
-            v_pack = s3c1.number_input("Direct to packout %", value=float(ot.kitting_split.packout_pct), step=1.0, min_value=0.0, max_value=100.0, key="pack_" + ot.id)
-            v_kit  = s3c2.number_input("to Kitting %",        value=float(ot.kitting_split.kitting_pct), step=1.0, min_value=0.0, max_value=100.0, key="kit_"  + ot.id)
-            s3t = v_pack + v_kit
-            if abs(s3t - 100) > 0.5:
-                st.warning("Kitting split totals " + str(int(s3t)) + "% — must be 100%")
-            else:
-                st.success("Kitting split OK: " + str(int(v_pack)) + "% direct + " + str(int(v_kit)) + "% kitting = 100%")
+    # ── build updates + live split validation from the edited grid ────────────
+    order_updates, check_rows, all_ok = {}, [], True
+    for oid, row in edited.iterrows():
+        s1 = float(row["600 %"]) + float(row["400 %"])
+        s2 = float(row["300 %"]) + float(row["200 %"])
+        s3 = float(row["Packout %"]) + float(row["Kitting %"])
+        ok = all(abs(s - 100) <= 0.5 for s in (s1, s2, s3))
+        all_ok = all_ok and ok
+        check_rows.append({
+            "Order":           str(row["Order"]),
+            "Storage 600+400": f"{s1:.0f}%",
+            "Cust 300+200":    f"{s2:.0f}%",
+            "Kit pack+kitting":f"{s3:.0f}%",
+            "Units/day":       int(row["Daily vol"]) * int(row["Avg units"]),
+            "Valid":           "✅" if ok else "⚠️",
+        })
+        order_updates[oid] = dict(
+            name=str(row["Order"]),
+            daily_volume=int(row["Daily vol"]),
+            avg_units_per_order=int(row["Avg units"]),
+            paper_pct=float(row["600 %"]),   consumable_pct=float(row["400 %"]),
+            cust1_pct=float(row["300 %"]),   cust2_pct=float(row["200 %"]),
+            packout_pct=float(row["Packout %"]), kitting_pct=float(row["Kitting %"]),
+        )
 
-            order_updates[ot.id] = dict(
-                daily_volume=v_vol, avg_units_per_order=v_qty,
-                paper_pct=v_paper, consumable_pct=v_cons,
-                cust1_pct=v_c1,    cust2_pct=v_c2,
-                packout_pct=v_pack, kitting_pct=v_kit)
+    st.caption("**Split validation** — each pair must total 100%:")
+    check_df = pd.DataFrame(check_rows)
+    st.dataframe(check_df, hide_index=True, width="stretch",
+                 height=int((len(check_df) + 1) * row_h + 3), row_height=row_h)
+    if all_ok:
+        st.success("All split pairs total 100%.")
+    else:
+        st.warning("Some split pairs don't total 100% (see ⚠️ rows) — fix before saving for accurate results.")
     return order_updates
 
 
@@ -720,6 +800,7 @@ def _apply_settings(area_updates, order_updates):
     area_map = {a.id: a for a in st.session_state.areas}
     for aid, u in area_updates.items():
         a = area_map[aid]
+        a.name                = u.get("name", a.name)
         a.rack_length_cuft    = u["rack_length_cuft"]
         a.rack_depth_cuft     = u["rack_depth_cuft"]
         a.rack_height_cuft    = u["rack_height_cuft"]
@@ -734,6 +815,7 @@ def _apply_settings(area_updates, order_updates):
     ot_map = {o.id: o for o in st.session_state.order_types}
     for oid, u in order_updates.items():
         ot = ot_map[oid]
+        ot.name                = u.get("name", ot.name)
         ot.daily_volume        = u["daily_volume"]
         ot.avg_units_per_order = u["avg_units_per_order"]
         ot.storage_split  = StorageSplit(paper_pct=u["paper_pct"],      consumable_pct=u["consumable_pct"])
@@ -773,7 +855,7 @@ def _render_excel_io():
             data=excel_data,
             file_name="warehouse_config_" + timestamp + ".xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
         )
 
     with col_ul:
@@ -803,7 +885,8 @@ def _render_excel_io():
                             "Units/box": a.units_per_box,
                             "Max boxes": a.max_concurrent_boxes or "—",
                         } for a in preview_areas]),
-                        use_container_width=True, hide_index=True)
+                        width="stretch", hide_index=True,
+                        height=int((len(preview_areas) + 1) * 29 + 3), row_height=29)
                     st.markdown("**Order types**")
                     st.dataframe(
                         pd.DataFrame([{
@@ -817,9 +900,10 @@ def _render_excel_io():
                             "Packout %": ot.kitting_split.packout_pct,
                             "Kitting %": ot.kitting_split.kitting_pct,
                         } for ot in preview_orders]),
-                        use_container_width=True, hide_index=True)
+                        width="stretch", hide_index=True,
+                        height=int((len(preview_orders) + 1) * 29 + 3), row_height=29)
 
-                if st.button("✅ Apply imported configuration", type="primary", use_container_width=True, key="apply_excel_config"):
+                if st.button("✅ Apply imported configuration", type="primary", width="stretch", key="apply_excel_config"):
                     st.session_state.areas = preview_areas
                     st.session_state.order_types = preview_orders
                     if db.is_db_configured():
@@ -850,14 +934,14 @@ def _render_db_controls():
         st.success("Database connected — Save & recalculate also writes here automatically.")
         dbc1, dbc2 = st.columns(2)
         with dbc1:
-            if st.button("🔄 Reload from database", use_container_width=True):
+            if st.button("🔄 Reload from database", width="stretch"):
                 _areas, _orders = db.load_all()
                 st.session_state.areas = _areas
                 st.session_state.order_types = _orders
                 st.success("Reloaded from database.")
                 st.rerun()
         with dbc2:
-            if st.button("↩️ Reset to factory defaults", use_container_width=True):
+            if st.button("↩️ Reset to factory defaults", width="stretch"):
                 st.session_state.areas = [copy.deepcopy(a) for a in DEFAULT_AREAS]
                 st.session_state.order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
                 db.save_all(st.session_state.areas, st.session_state.order_types)
@@ -914,14 +998,14 @@ if page == "⚙️ Settings":
         st.markdown("---")
         save_from_areas = st.button(
             "💾 Save & recalculate", type="primary",
-            use_container_width=True, key="save_areas_btn")
+            width="stretch", key="save_areas_btn")
 
     with tab_orders:
         order_updates = _render_order_settings()
         st.markdown("---")
         save_from_orders = st.button(
             "💾 Save & recalculate", type="primary",
-            use_container_width=True, key="save_orders_btn")
+            width="stretch", key="save_orders_btn")
 
     with tab_io:
         _render_excel_io()
@@ -1001,9 +1085,9 @@ elif page == "📦 Analysis":
         fig.update_layout(
             xaxis=dict(title="Utilization %", range=[0, 115]),
             yaxis=dict(autorange="reversed"),
-            height=320, margin=dict(l=10, r=60, t=20, b=40),
+            height=250, margin=dict(l=10, r=60, t=20, b=40),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         rows = []
         for a in snap.areas:
@@ -1022,7 +1106,7 @@ elif page == "📦 Analysis":
                 "Util %":       str(round(a.utilization_pct, 1)) + "%",
                 "Status":       status_label(a.utilization_pct),
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         st.caption("🔢 = hard box cap active — utilization measured against max concurrent boxes, not volume")
 
         st.subheader("Zone summary")
@@ -1062,7 +1146,7 @@ elif page == "📦 Analysis":
                             "Units":     str(int(boxes * a.area.units_per_box)),
                             "% of area": str(round(boxes / a.load_boxes * 100, 1)) + "%" if a.load_boxes else "—",
                         })
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
                 else:
                     st.caption("No orders currently load this area.")
 
@@ -1084,10 +1168,10 @@ elif page == "📦 Analysis":
             texttemplate="%{text}",
             hovertemplate="Area: %{x}<br>Mult: %{y}<br>Util: %{z:.1f}%<extra></extra>",
         ))
-        fig3.update_layout(height=500, margin=dict(l=10,r=10,t=20,b=10),
+        fig3.update_layout(height=360, margin=dict(l=10,r=10,t=20,b=10),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             xaxis=dict(tickangle=-30))
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width="stretch")
 
         def color_cell(val):
             try:
@@ -1106,7 +1190,7 @@ elif page == "📦 Analysis":
             if col in dp.columns:
                 dp[col] = dp[col].apply(lambda x: str(int(x)) + "%")
         st.dataframe(dp.style.map(color_cell, subset=area_names_list),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
     with tab4:
         st.subheader("Bottleneck sequence")
@@ -1128,7 +1212,7 @@ elif page == "📦 Analysis":
         if seq_85:
             st.dataframe(
                 pd.DataFrame([{"Area": n, "Reaches 85% at": "x" + str(m)} for m, n, _ in seq_85]),
-                use_container_width=True, hide_index=True)
+                width="stretch", hide_index=True)
             fig4 = go.Figure()
             for mult, name, _ in reversed(seq_85):
                 fig4.add_trace(go.Bar(
@@ -1141,10 +1225,10 @@ elif page == "📦 Analysis":
             fig4.update_layout(
                 xaxis=dict(title="Multiplier", range=[0, 22]),
                 yaxis=dict(autorange="reversed"),
-                height=280, margin=dict(l=10,r=60,t=40,b=40),
+                height=220, margin=dict(l=10,r=60,t=40,b=40),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 barmode="overlay")
-            st.plotly_chart(fig4, use_container_width=True)
+            st.plotly_chart(fig4, width="stretch")
         else:
             st.success("No areas reach 85% within x20 volume.")
 
@@ -1162,10 +1246,10 @@ elif page == "📦 Analysis":
                     ZONE_NAMES["300"]: ZONE_COLORS["300"],
                     ZONE_NAMES["200"]: ZONE_COLORS["200"],
                 })
-            fig5.update_layout(height=320, margin=dict(l=10,r=10,t=40,b=40),
+            fig5.update_layout(height=250, margin=dict(l=10,r=10,t=40,b=40),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig5, use_container_width=True)
+            st.plotly_chart(fig5, width="stretch")
 
             disp = bom_df[["order_name","zone_name","pct_of_total","units","units_per_box","boxes"]].copy()
             disp.columns = ["Order","Zone","% of total","Units/day","Units per box","Boxes/day"]
-            st.dataframe(disp, use_container_width=True, hide_index=True)
+            st.dataframe(disp, width="stretch", hide_index=True)
