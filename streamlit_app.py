@@ -660,9 +660,11 @@ def _render_area_settings():
         "Max boxes": int(a.max_concurrent_boxes) if a.max_concurrent_boxes is not None else 0,
     } for a in st.session_state.areas]).set_index("ID")
 
+    row_h    = 29
+    grid_h   = int((len(df) + 1) * row_h + 3)
     edited = st.data_editor(
         df, key="areas_editor", hide_index=True, num_rows="fixed",
-        width="stretch",
+        width="stretch", height=grid_h, row_height=row_h,
         column_config={
             "Area":      st.column_config.TextColumn("Area", width="medium"),
             "Zone":      st.column_config.TextColumn("Zone", disabled=True, width="small"),
@@ -709,7 +711,9 @@ def _render_area_settings():
         })
 
     st.caption("**Live capacity preview** — recalculates as you type, applied on Save:")
-    st.dataframe(pd.DataFrame(prev_rows), hide_index=True, width="stretch")
+    prev_df = pd.DataFrame(prev_rows)
+    st.dataframe(prev_df, hide_index=True, width="stretch",
+                 height=int((len(prev_df) + 1) * row_h + 3), row_height=row_h)
     return area_updates
 
 
@@ -737,9 +741,11 @@ def _render_order_settings():
     def pct(label):
         return st.column_config.NumberColumn(label, min_value=0.0, max_value=100.0, step=1.0, format="%.0f")
 
+    row_h  = 29
+    grid_h = int((len(df) + 1) * row_h + 3)
     edited = st.data_editor(
         df, key="orders_editor", hide_index=True, num_rows="fixed",
-        width="stretch",
+        width="stretch", height=grid_h, row_height=row_h,
         column_config={
             "Order":     st.column_config.TextColumn("Order", width="medium"),
             "Daily vol": st.column_config.NumberColumn("Daily vol", min_value=1, step=1, format="%d"),
@@ -779,7 +785,9 @@ def _render_order_settings():
         )
 
     st.caption("**Split validation** — each pair must total 100%:")
-    st.dataframe(pd.DataFrame(check_rows), hide_index=True, width="stretch")
+    check_df = pd.DataFrame(check_rows)
+    st.dataframe(check_df, hide_index=True, width="stretch",
+                 height=int((len(check_df) + 1) * row_h + 3), row_height=row_h)
     if all_ok:
         st.success("All split pairs total 100%.")
     else:
@@ -877,7 +885,8 @@ def _render_excel_io():
                             "Units/box": a.units_per_box,
                             "Max boxes": a.max_concurrent_boxes or "—",
                         } for a in preview_areas]),
-                        width="stretch", hide_index=True)
+                        width="stretch", hide_index=True,
+                        height=int((len(preview_areas) + 1) * 29 + 3), row_height=29)
                     st.markdown("**Order types**")
                     st.dataframe(
                         pd.DataFrame([{
@@ -891,7 +900,8 @@ def _render_excel_io():
                             "Packout %": ot.kitting_split.packout_pct,
                             "Kitting %": ot.kitting_split.kitting_pct,
                         } for ot in preview_orders]),
-                        width="stretch", hide_index=True)
+                        width="stretch", hide_index=True,
+                        height=int((len(preview_orders) + 1) * 29 + 3), row_height=29)
 
                 if st.button("✅ Apply imported configuration", type="primary", width="stretch", key="apply_excel_config"):
                     st.session_state.areas = preview_areas
