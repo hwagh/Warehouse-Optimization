@@ -505,7 +505,7 @@ if page == "🏭 Material flow":
         )
         return fig
 
-    st.plotly_chart(make_flow_diagram(get_engine()), use_container_width=True)
+    st.plotly_chart(make_flow_diagram(get_engine()), width="stretch")
     st.markdown("---")
 
     engine = get_engine()
@@ -608,7 +608,7 @@ def _render_area_settings():
 
     edited = st.data_editor(
         df, key="areas_editor", hide_index=True, num_rows="fixed",
-        use_container_width=True,
+        width="stretch",
         column_config={
             "Area":      st.column_config.TextColumn("Area", width="medium"),
             "Zone":      st.column_config.TextColumn("Zone", disabled=True, width="small"),
@@ -655,7 +655,7 @@ def _render_area_settings():
         })
 
     st.caption("**Live capacity preview** — recalculates as you type, applied on Save:")
-    st.dataframe(pd.DataFrame(prev_rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(prev_rows), hide_index=True, width="stretch")
     return area_updates
 
 
@@ -685,7 +685,7 @@ def _render_order_settings():
 
     edited = st.data_editor(
         df, key="orders_editor", hide_index=True, num_rows="fixed",
-        use_container_width=True,
+        width="stretch",
         column_config={
             "Order":     st.column_config.TextColumn("Order", width="medium"),
             "Daily vol": st.column_config.NumberColumn("Daily vol", min_value=1, step=1, format="%d"),
@@ -725,7 +725,7 @@ def _render_order_settings():
         )
 
     st.caption("**Split validation** — each pair must total 100%:")
-    st.dataframe(pd.DataFrame(check_rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(check_rows), hide_index=True, width="stretch")
     if all_ok:
         st.success("All split pairs total 100%.")
     else:
@@ -793,7 +793,7 @@ def _render_excel_io():
             data=excel_data,
             file_name="warehouse_config_" + timestamp + ".xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
         )
 
     with col_ul:
@@ -823,7 +823,7 @@ def _render_excel_io():
                             "Units/box": a.units_per_box,
                             "Max boxes": a.max_concurrent_boxes or "—",
                         } for a in preview_areas]),
-                        use_container_width=True, hide_index=True)
+                        width="stretch", hide_index=True)
                     st.markdown("**Order types**")
                     st.dataframe(
                         pd.DataFrame([{
@@ -837,9 +837,9 @@ def _render_excel_io():
                             "Packout %": ot.kitting_split.packout_pct,
                             "Kitting %": ot.kitting_split.kitting_pct,
                         } for ot in preview_orders]),
-                        use_container_width=True, hide_index=True)
+                        width="stretch", hide_index=True)
 
-                if st.button("✅ Apply imported configuration", type="primary", use_container_width=True, key="apply_excel_config"):
+                if st.button("✅ Apply imported configuration", type="primary", width="stretch", key="apply_excel_config"):
                     st.session_state.areas = preview_areas
                     st.session_state.order_types = preview_orders
                     if db.is_db_configured():
@@ -870,14 +870,14 @@ def _render_db_controls():
         st.success("Database connected — Save & recalculate also writes here automatically.")
         dbc1, dbc2 = st.columns(2)
         with dbc1:
-            if st.button("🔄 Reload from database", use_container_width=True):
+            if st.button("🔄 Reload from database", width="stretch"):
                 _areas, _orders = db.load_all()
                 st.session_state.areas = _areas
                 st.session_state.order_types = _orders
                 st.success("Reloaded from database.")
                 st.rerun()
         with dbc2:
-            if st.button("↩️ Reset to factory defaults", use_container_width=True):
+            if st.button("↩️ Reset to factory defaults", width="stretch"):
                 st.session_state.areas = [copy.deepcopy(a) for a in DEFAULT_AREAS]
                 st.session_state.order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
                 db.save_all(st.session_state.areas, st.session_state.order_types)
@@ -934,14 +934,14 @@ if page == "⚙️ Settings":
         st.markdown("---")
         save_from_areas = st.button(
             "💾 Save & recalculate", type="primary",
-            use_container_width=True, key="save_areas_btn")
+            width="stretch", key="save_areas_btn")
 
     with tab_orders:
         order_updates = _render_order_settings()
         st.markdown("---")
         save_from_orders = st.button(
             "💾 Save & recalculate", type="primary",
-            use_container_width=True, key="save_orders_btn")
+            width="stretch", key="save_orders_btn")
 
     with tab_io:
         _render_excel_io()
@@ -1023,7 +1023,7 @@ elif page == "📦 Analysis":
             yaxis=dict(autorange="reversed"),
             height=320, margin=dict(l=10, r=60, t=20, b=40),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         rows = []
         for a in snap.areas:
@@ -1042,7 +1042,7 @@ elif page == "📦 Analysis":
                 "Util %":       str(round(a.utilization_pct, 1)) + "%",
                 "Status":       status_label(a.utilization_pct),
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         st.caption("🔢 = hard box cap active — utilization measured against max concurrent boxes, not volume")
 
         st.subheader("Zone summary")
@@ -1082,7 +1082,7 @@ elif page == "📦 Analysis":
                             "Units":     str(int(boxes * a.area.units_per_box)),
                             "% of area": str(round(boxes / a.load_boxes * 100, 1)) + "%" if a.load_boxes else "—",
                         })
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
                 else:
                     st.caption("No orders currently load this area.")
 
@@ -1107,7 +1107,7 @@ elif page == "📦 Analysis":
         fig3.update_layout(height=500, margin=dict(l=10,r=10,t=20,b=10),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             xaxis=dict(tickangle=-30))
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width="stretch")
 
         def color_cell(val):
             try:
@@ -1126,7 +1126,7 @@ elif page == "📦 Analysis":
             if col in dp.columns:
                 dp[col] = dp[col].apply(lambda x: str(int(x)) + "%")
         st.dataframe(dp.style.map(color_cell, subset=area_names_list),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
     with tab4:
         st.subheader("Bottleneck sequence")
@@ -1148,7 +1148,7 @@ elif page == "📦 Analysis":
         if seq_85:
             st.dataframe(
                 pd.DataFrame([{"Area": n, "Reaches 85% at": "x" + str(m)} for m, n, _ in seq_85]),
-                use_container_width=True, hide_index=True)
+                width="stretch", hide_index=True)
             fig4 = go.Figure()
             for mult, name, _ in reversed(seq_85):
                 fig4.add_trace(go.Bar(
@@ -1164,7 +1164,7 @@ elif page == "📦 Analysis":
                 height=280, margin=dict(l=10,r=60,t=40,b=40),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 barmode="overlay")
-            st.plotly_chart(fig4, use_container_width=True)
+            st.plotly_chart(fig4, width="stretch")
         else:
             st.success("No areas reach 85% within x20 volume.")
 
@@ -1184,8 +1184,8 @@ elif page == "📦 Analysis":
                 })
             fig5.update_layout(height=320, margin=dict(l=10,r=10,t=40,b=40),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig5, use_container_width=True)
+            st.plotly_chart(fig5, width="stretch")
 
             disp = bom_df[["order_name","zone_name","pct_of_total","units","units_per_box","boxes"]].copy()
             disp.columns = ["Order","Zone","% of total","Units/day","Units per box","Boxes/day"]
-            st.dataframe(disp, use_container_width=True, hide_index=True)
+            st.dataframe(disp, width="stretch", hide_index=True)
