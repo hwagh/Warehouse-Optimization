@@ -78,12 +78,6 @@ def fmt_vol(cuft_value: float, decimals: int = 1) -> str:
 # ── Single-file CSV template ─────────────────────────────────────────────────
 # One CSV with a SECTION column keeps everything together and stays
 # human-readable — open in Excel, fill in, upload back.
-#
-# Format:
-#   Rows starting with # are instructions (ignored on import)
-#   section=AREAS      → storage area rows
-#   section=ORDERS     → order type rows
-#   All other columns  → field values (blanks are allowed for optional fields)
 
 import io
 from datetime import datetime
@@ -198,8 +192,6 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
             cell.border = THIN_BORDER
             if col_idx == 1:
                 cell.fill = KEY_FILL
-
-    # No dropdown validation needed for rack-based areas
 
     # ── Order Types sheet ────────────────────────────────────────────────────
     ws_o = wb.create_sheet("Order Types")
@@ -367,19 +359,12 @@ if page == "🏭 Material flow":
     def make_flow_diagram(engine):
         """
         Improved flow diagram using scatter traces for proper connected arrows.
-        Layout (x, y in data coords 0-100):
-          Row 1 (y=90): Inbound Orders (centre)
-          Row 2 (y=70): 600-Paper (left), 400-Consumables (right)
-          Row 3 (y=50): SmartBulk (left), 300-CS1 (centre-left), 200-CS2 (right)
-          Row 4 (y=30): Kitting-300 (centre-left), Kitting-200 (right)
-          Row 5 (y=10): 100-Final (centre)
         """
         snap = engine.snapshot(1.0)
         fl   = snap.flow
         fig  = go.Figure()
 
         # ── coordinate system: 0-100 x, 0-100 y ─────────────────────────
-        # node centres
         N = {
             "orders":  (50, 90),
             "z600":    (22, 70),
@@ -398,13 +383,9 @@ if page == "🏭 Material flow":
                 x=[x0, x1], y=[y0, y1], mode="lines",
                 line=dict(color=color, width=width, dash=dash),
                 hoverinfo="skip", showlegend=False))
-            # arrowhead: small marker at end styled as triangle
             import math
             dx, dy = x1-x0, y1-y0
             length = math.sqrt(dx*dx + dy*dy) or 1
-            # place marker slightly back from tip so it looks centred
-            mx = x1 - dx/length*1.5
-            my = y1 - dy/length*1.5
             angle = math.degrees(math.atan2(dy, dx))
             fig.add_trace(go.Scatter(
                 x=[x1], y=[y1], mode="markers",
@@ -416,20 +397,17 @@ if page == "🏭 Material flow":
 
         def add_node(x, y, title, subtitle, tc, bg, bc, w=18, h=7):
             """Draw a rounded rectangle node."""
-            # shadow/glow
             fig.add_shape(type="rect",
                 x0=x-w/2+0.4, y0=y-h/2-0.4,
                 x1=x+w/2+0.4, y1=y+h/2-0.4,
                 xref="x", yref="y",
                 fillcolor="rgba(0,0,0,0.4)", line=dict(width=0))
-            # main box
             fig.add_shape(type="rect",
                 x0=x-w/2, y0=y-h/2,
                 x1=x+w/2, y1=y+h/2,
                 xref="x", yref="y",
                 fillcolor=bg,
                 line=dict(color=bc, width=2))
-            # title
             fig.add_annotation(
                 x=x, y=y + (1.2 if subtitle else 0),
                 text="<b>" + title + "</b>",
@@ -470,30 +448,18 @@ if page == "🏭 Material flow":
         add_node(*N["final"],  "100 – Final/Packout","Ready to ship",       "#fca5a5", "#2a0a0a", "#ef4444", w=24, h=6)
 
         # ── arrows ───────────────────────────────────────────────────────
-        # Inbound → 600
         add_arrow(50, 87, 22, 73.5, "#4f6ef7")
-        # Inbound → 400
         add_arrow(50, 87, 78, 73.5, "#06b6d4")
-        # 600 → Smart Bulk
         add_arrow(22, 66.5, 22, 53.5, "#7c5cfc")
-        # Smart Bulk → Final (direct bypass, dashed)
         add_arrow(11, 50, 11, 10, "#7c5cfc", dash="dot", width=1.5)
         add_arrow(11, 10, 38, 10, "#7c5cfc", dash="dot", width=1.5)
-        # 400 → 300
         add_arrow(65, 70, 56, 53.5, "#10b981")
-        # 400 → 200
         add_arrow(78, 66.5, 78, 53.5, "#f59e0b")
-        # 300 → Kitting
         add_arrow(48, 46.5, 48, 33.5, "#10b981")
-        # 200 → Kitting
         add_arrow(78, 46.5, 78, 33.5, "#f59e0b")
-        # Kitting 300 loop back to 300 (via left side)
         add_arrow(40, 30, 40, 50, "#6b7280", dash="dash", width=1.5)
-        # Kitting 200 loop back to 200 (via right side)
         add_arrow(86, 30, 86, 50, "#6b7280", dash="dash", width=1.5)
-        # 300 → Final
         add_arrow(44, 46.5, 44, 13.5, "#10b981")
-        # 200 → Final
         add_arrow(78, 46.5, 56, 13.5, "#f59e0b")
 
         # ── edge labels ──────────────────────────────────────────────────
@@ -596,30 +562,27 @@ if page == "🏭 Material flow":
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  SETTINGS PAGE
+#  SETTINGS PAGE  — section renderers (one per sub-tab)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-if page == "⚙️ Settings":
-    st.title("⚙️ Settings")
-    st.caption("Update area dimensions and order type splits, then click Save.")
+def _render_unit_converter():
+    st.caption("Enter a value in any unit to see all equivalents instantly.")
+    cc1, cc2 = st.columns(2)
+    conv_val = cc1.number_input("Value", value=1.0, step=0.1, key="conv_val", min_value=0.0)
+    conv_from = cc2.selectbox("From unit", list(UNITS.keys()), key="conv_from")
+    val_in_cuft = conv_val * UNITS[conv_from]["to_cuft"]
+    st.markdown("**Equivalents:**")
+    rc = st.columns(4)
+    for i, (ukey, udata) in enumerate(UNITS.items()):
+        converted = val_in_cuft * udata["from_cuft"]
+        if ukey == conv_from:
+            rc[i].metric(udata["label"], f"{converted:,.4f}", delta="← input", delta_color="off")
+        else:
+            rc[i].metric(udata["label"], f"{converted:,.4f}")
 
-    # ── Unit converter ───────────────────────────────────────────────────────
-    with st.expander("🔁 Volume unit converter", expanded=False):
-        st.caption("Enter a value in any unit to see all equivalents instantly.")
-        cc1, cc2 = st.columns(2)
-        conv_val = cc1.number_input("Value", value=1.0, step=0.1, key="conv_val", min_value=0.0)
-        conv_from = cc2.selectbox("From unit", list(UNITS.keys()), key="conv_from")
-        val_in_cuft = conv_val * UNITS[conv_from]["to_cuft"]
-        st.markdown("**Equivalents:**")
-        rc = st.columns(4)
-        for i, (ukey, udata) in enumerate(UNITS.items()):
-            converted = val_in_cuft * udata["from_cuft"]
-            if ukey == conv_from:
-                rc[i].metric(udata["label"], f"{converted:,.4f}", delta="← input", delta_color="off")
-            else:
-                rc[i].metric(udata["label"], f"{converted:,.4f}")
 
-    st.markdown("---")
+def _render_area_settings():
+    """Draws the storage-area editors and returns the collected updates dict."""
     st.subheader("Storage areas")
     st.caption("Set rack dimensions and number of racks — volume is calculated automatically.")
     area_updates = {}
@@ -638,7 +601,6 @@ if page == "⚙️ Settings":
 
                 v_nracks = st.number_input("Number of racks", value=int(area.num_racks), step=1, min_value=1, key="nrk_" + area.id)
 
-                # convert back to cu ft for storage
                 v_rlen_cuft = to_cuft(v_rlen)
                 v_rdep_cuft = to_cuft(v_rdep)
                 v_rhgt_cuft = to_cuft(v_rhgt)
@@ -652,7 +614,6 @@ if page == "⚙️ Settings":
 
                 st.markdown("---")
 
-                # ── Other settings ────────────────────────────────────────
                 v_eff = st.number_input("Efficiency (0–1)", value=float(area.efficiency), step=0.01, min_value=0.1, max_value=1.0, key="eff_" + area.id, help="Usable fraction after aisles and stacking limits, e.g. 0.75 = 75%")
 
                 st.markdown("**Avg box dimensions**")
@@ -668,7 +629,6 @@ if page == "⚙️ Settings":
 
                 v_upb = st.number_input("Units per box", value=float(area.units_per_box), step=1.0, min_value=1.0, key="upb_" + area.id)
 
-                # ── Max concurrent boxes ──────────────────────────────────
                 st.markdown("---")
                 st.markdown("**🔢 Max concurrent boxes** *(optional hard cap)*")
                 st.caption("Set a limit if this area has a physical processing constraint. Leave 0 for no cap.")
@@ -676,7 +636,6 @@ if page == "⚙️ Settings":
                 raw_max = st.number_input("Max boxes", value=int(cur_max), step=10, min_value=0, key="maxb_" + area.id, label_visibility="collapsed")
                 v_max_boxes = int(raw_max) if raw_max > 0 else None
 
-                # ── Live capacity preview ─────────────────────────────────
                 vol_cap = int((total_vol_cuft * v_eff) / v_box_cuft) if v_box_cuft > 0 else 0
                 eff_cap = min(v_max_boxes, vol_cap) if v_max_boxes else vol_cap
                 cap_units = int(eff_cap * v_upb)
@@ -700,8 +659,11 @@ if page == "⚙️ Settings":
                     units_per_box=v_upb,
                     max_concurrent_boxes=v_max_boxes,
                 )
+    return area_updates
 
-    st.markdown("---")
+
+def _render_order_settings():
+    """Draws the order-type editors and returns the collected updates dict."""
     st.subheader("Order types")
     st.caption("Configure volume and three independent splits for each order type.")
 
@@ -750,44 +712,46 @@ if page == "⚙️ Settings":
                 paper_pct=v_paper, consumable_pct=v_cons,
                 cust1_pct=v_c1,    cust2_pct=v_c2,
                 packout_pct=v_pack, kitting_pct=v_kit)
+    return order_updates
 
-    st.markdown("---")
-    if st.button("Save & recalculate", type="primary", use_container_width=True):
-        area_map = {a.id: a for a in st.session_state.areas}
-        for aid, u in area_updates.items():
-            a = area_map[aid]
-            a.rack_length_cuft    = u["rack_length_cuft"]
-            a.rack_depth_cuft     = u["rack_depth_cuft"]
-            a.rack_height_cuft    = u["rack_height_cuft"]
-            a.num_racks           = u["num_racks"]
-            a.box_length_cuft     = u["box_length_cuft"]
-            a.box_depth_cuft      = u["box_depth_cuft"]
-            a.box_height_cuft     = u["box_height_cuft"]
-            a.efficiency          = u["efficiency"]
-            a.units_per_box       = u["units_per_box"]
-            a.max_concurrent_boxes = u["max_concurrent_boxes"]
 
-        ot_map = {o.id: o for o in st.session_state.order_types}
-        for oid, u in order_updates.items():
-            ot = ot_map[oid]
-            ot.daily_volume        = u["daily_volume"]
-            ot.avg_units_per_order = u["avg_units_per_order"]
-            ot.storage_split  = StorageSplit(paper_pct=u["paper_pct"],      consumable_pct=u["consumable_pct"])
-            ot.customer_split = CustomerSplit(cust1_pct=u["cust1_pct"],     cust2_pct=u["cust2_pct"])
-            ot.kitting_split  = KittingSplit(packout_pct=u["packout_pct"],  kitting_pct=u["kitting_pct"])
+def _apply_settings(area_updates, order_updates):
+    """Write the collected edits back into session state (and DB if configured)."""
+    area_map = {a.id: a for a in st.session_state.areas}
+    for aid, u in area_updates.items():
+        a = area_map[aid]
+        a.rack_length_cuft    = u["rack_length_cuft"]
+        a.rack_depth_cuft     = u["rack_depth_cuft"]
+        a.rack_height_cuft    = u["rack_height_cuft"]
+        a.num_racks           = u["num_racks"]
+        a.box_length_cuft     = u["box_length_cuft"]
+        a.box_depth_cuft      = u["box_depth_cuft"]
+        a.box_height_cuft     = u["box_height_cuft"]
+        a.efficiency          = u["efficiency"]
+        a.units_per_box       = u["units_per_box"]
+        a.max_concurrent_boxes = u["max_concurrent_boxes"]
 
-        st.success("Settings saved.")
-        if db.is_db_configured():
-            saved_ok = db.save_all(st.session_state.areas, st.session_state.order_types)
-            if saved_ok:
-                st.success("✅ Saved to database — values will persist across sessions.")
-            else:
-                st.warning("⚠️ Saved locally but database write failed — check the error above.")
+    ot_map = {o.id: o for o in st.session_state.order_types}
+    for oid, u in order_updates.items():
+        ot = ot_map[oid]
+        ot.daily_volume        = u["daily_volume"]
+        ot.avg_units_per_order = u["avg_units_per_order"]
+        ot.storage_split  = StorageSplit(paper_pct=u["paper_pct"],      consumable_pct=u["consumable_pct"])
+        ot.customer_split = CustomerSplit(cust1_pct=u["cust1_pct"],     cust2_pct=u["cust2_pct"])
+        ot.kitting_split  = KittingSplit(packout_pct=u["packout_pct"],  kitting_pct=u["kitting_pct"])
+
+    st.success("Settings saved.")
+    if db.is_db_configured():
+        saved_ok = db.save_all(st.session_state.areas, st.session_state.order_types)
+        if saved_ok:
+            st.success("✅ Saved to database — values will persist across sessions.")
         else:
-            st.info("ℹ️ No database configured — values are session-only and will reset on refresh. See README to set up Supabase.")
-        st.rerun()
+            st.warning("⚠️ Saved locally but database write failed — check the error above.")
+    else:
+        st.info("ℹ️ No database configured — values are session-only and will reset on refresh. See README to set up Supabase.")
 
-    st.markdown("---")
+
+def _render_excel_io():
     st.subheader("💾 Save / Load configuration (Excel)")
     st.caption(
         "Download the template, fill it in Excel, then upload it here to apply your values."
@@ -826,7 +790,6 @@ if page == "⚙️ Settings":
                     "✅ File parsed successfully — " + str(len(preview_areas)) + " areas and "
                     + str(len(preview_orders)) + " order types found. Review below, then click Apply.")
 
-                # show a quick preview so user can verify before applying
                 with st.expander("📋 Preview imported values", expanded=True):
                     st.markdown("**Areas**")
                     st.dataframe(
@@ -880,10 +843,11 @@ if page == "⚙️ Settings":
                     except Exception:
                         st.caption("Could not read the uploaded file at all — it may not be a valid .xlsx file.")
 
-    st.markdown("---")
+
+def _render_db_controls():
     st.subheader("🗄️ Database controls")
     if db.is_db_configured():
-        st.success("Database connected — Save & recalculate above also writes here automatically.")
+        st.success("Database connected — Save & recalculate also writes here automatically.")
         dbc1, dbc2 = st.columns(2)
         with dbc1:
             if st.button("🔄 Reload from database", use_container_width=True):
@@ -928,6 +892,51 @@ if page == "⚙️ Settings":
                 "~20-30 seconds and sometimes a manual reboot (⋮ menu → Reboot app) "
                 "to pick up new secrets."
             )
+
+
+if page == "⚙️ Settings":
+    st.title("⚙️ Settings")
+    st.caption("Each section is its own tab — pick one below, no more scrolling. Edits apply when you hit Save.")
+
+    tab_areas, tab_orders, tab_io, tab_db, tab_conv = st.tabs([
+        "🗺️ Storage Areas",
+        "📦 Order Types",
+        "💾 Import / Export",
+        "🗄️ Database",
+        "🔁 Unit Converter",
+    ])
+
+    area_updates, order_updates = {}, {}
+    save_from_areas = save_from_orders = False
+
+    with tab_areas:
+        area_updates = _render_area_settings()
+        st.markdown("---")
+        save_from_areas = st.button(
+            "💾 Save & recalculate", type="primary",
+            use_container_width=True, key="save_areas_btn")
+
+    with tab_orders:
+        order_updates = _render_order_settings()
+        st.markdown("---")
+        save_from_orders = st.button(
+            "💾 Save & recalculate", type="primary",
+            use_container_width=True, key="save_orders_btn")
+
+    with tab_io:
+        _render_excel_io()
+
+    with tab_db:
+        _render_db_controls()
+
+    with tab_conv:
+        _render_unit_converter()
+
+    # Either Save button applies edits from BOTH editing tabs (they both render
+    # every run, so both update dicts are always populated).
+    if save_from_areas or save_from_orders:
+        _apply_settings(area_updates, order_updates)
+        st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
