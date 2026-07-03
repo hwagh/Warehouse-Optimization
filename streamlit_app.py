@@ -392,10 +392,10 @@ with st.sidebar:
         ["📦 Analysis", "🏭 Material flow", "⚙️ Settings"],
         label_visibility="collapsed")
     st.markdown("---")
-    if db.is_db_configured():
-        st.caption("🟢 Connected to database — changes persist")
+    if db.storage_mode() == "database":
+        st.caption("🟢 Connected to database — changes persist across devices")
     else:
-        st.caption("⚪ No database configured — changes are session-only")
+        st.caption("🟢 Saving locally — changes persist across refreshes on this server")
     st.markdown("---")
     st.markdown("**Quick status at x1.0**")
     _snap = get_engine().snapshot(1.0)
@@ -847,15 +847,13 @@ def _apply_settings(area_updates, order_updates):
         ot.customer_split = CustomerSplit(cust1_pct=u["cust1_pct"],     cust2_pct=u["cust2_pct"])
         ot.kitting_split  = KittingSplit(packout_pct=u["packout_pct"],  kitting_pct=u["kitting_pct"])
 
-    st.success("Settings saved.")
-    if db.is_db_configured():
-        saved_ok = db.save_all(st.session_state.areas, st.session_state.order_types)
-        if saved_ok:
-            st.success("✅ Saved to database — values will persist across sessions.")
-        else:
-            st.warning("⚠️ Saved locally but database write failed — check the error above.")
+    saved_ok = db.save_all(st.session_state.areas, st.session_state.order_types)
+    if saved_ok and db.storage_mode() == "database":
+        st.success("✅ Saved to the database — values persist across sessions and devices.")
+    elif saved_ok:
+        st.success("✅ Saved — your changes will persist across page refreshes.")
     else:
-        st.info("ℹ️ No database configured — values are session-only and will reset on refresh. See README to set up Supabase.")
+        st.error("⚠️ Save failed — see the error above. Your edits are applied for this session only.")
 
 
 def _render_excel_io():
@@ -931,11 +929,11 @@ def _render_excel_io():
                 if st.button("✅ Apply imported configuration", type="primary", width="stretch", key="apply_excel_config"):
                     st.session_state.areas = preview_areas
                     st.session_state.order_types = preview_orders
-                    if db.is_db_configured():
-                        db.save_all(preview_areas, preview_orders)
-                        st.success("Configuration loaded and saved to database.")
+                    if db.save_all(preview_areas, preview_orders):
+                        where = "the database" if db.storage_mode() == "database" else "local storage"
+                        st.success("Configuration loaded and saved to " + where + ".")
                     else:
-                        st.success("Configuration loaded (session only — no database configured).")
+                        st.warning("Configuration loaded, but saving failed — applied for this session only.")
                     st.rerun()
 
             except Exception as e:
@@ -954,64 +952,78 @@ def _render_excel_io():
 
 
 def _render_db_controls():
-    st.subheader("🗄️ Database controls")
-    if db.is_db_configured():
-        st.success("Database connected — Save & recalculate also writes here automatically.")
-        dbc1, dbc2 = st.columns(2)
-        with dbc1:
-            if st.button("🔄 Reload from database", width="stretch"):
-                _areas, _orders = db.load_all()
-                st.session_state.areas = _areas
-                st.session_state.order_types = _orders
-                st.success("Reloaded from database.")
-                st.rerun()
-        with dbc2:
-            if st.button("↩️ Reset to factory defaults", width="stretch"):
-                st.session_state.areas = [copy.deepcopy(a) for a in DEFAULT_AREAS]
-                st.session_state.order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
-                db.save_all(st.session_state.areas, st.session_state.order_types)
-                st.success("Reset to defaults and saved to database.")
-                st.rerun()
-    else:
-        st.warning(
-            "No database connected. Values only persist for this browser session. "
-            "See README.md for the one-time Supabase setup (free, ~5 minutes)."
+    st.subheader("💾 Data & storage")
+    mode = db.storage_mode()
+    if mode == "database":
+        st.success(
+            "🟢 **Connected to a database.** Every Save persists across sessions, "
+            "devices, and app restarts."
         )
-        with st.expander("🔍 Run connection diagnostic", expanded=True):
-            diag = db.diagnose()
-            steps = [
-                ("Secrets section [supabase] found", diag["secrets_section_found"]),
-                ("url value found",                  diag["url_found"]),
-                ("key value found",                  diag["key_found"]),
-                ("Client created",                   diag["client_created"]),
-                ("Test query to database succeeded", diag["query_succeeded"]),
-            ]
-            for label, ok in steps:
-                if ok:
-                    st.markdown("✅ " + label)
-                else:
-                    st.markdown("❌ " + label)
-                    break
-            if diag["url_preview"]:
-                st.caption("URL detected: " + diag["url_preview"])
-            if diag["error"]:
-                st.error(diag["error"])
-            st.caption(
-                "Run this after every change to Secrets — Streamlit Cloud needs "
-                "~20-30 seconds and sometimes a manual reboot (⋮ menu → Reboot app) "
-                "to pick up new secrets."
-            )
+    else:
+        st.info(
+            "🟢 **Your changes are saved automatically** and persist across page "
+            "refreshes. For durable multi-user storage that also survives server "
+            "restarts, you can optionally connect a free Supabase database below."
+        )
+
+    dbc1, dbc2 = st.columns(2)
+    with dbc1:
+        if st.button("🔄 Reload saved values", width="stretch",
+                     help="Discard unsaved edits and reload the last saved configuration."):
+            _areas, _orders = db.load_all()
+            st.session_state.areas = _areas
+            st.session_state.order_types = _orders
+            st.success("Reloaded the saved configuration.")
+            st.rerun()
+    with dbc2:
+        if st.button("↩️ Reset to factory defaults", width="stretch",
+                     help="Replace everything with the built-in calibrated defaults."):
+            db.reset_to_defaults()
+            st.session_state.areas = [copy.deepcopy(a) for a in DEFAULT_AREAS]
+            st.session_state.order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
+            st.success("Reset to the built-in defaults.")
+            st.rerun()
+
+    with st.expander("🔌 Connect a database (optional) — Supabase setup & diagnostic",
+                     expanded=False):
+        st.caption(
+            "Optional. Connect Supabase (free, ~5 min — see README) for storage that "
+            "persists across server restarts and is shared across everyone using the app."
+        )
+        diag = db.diagnose()
+        steps = [
+            ("Secrets section [supabase] found", diag["secrets_section_found"]),
+            ("url value found",                  diag["url_found"]),
+            ("key value found",                  diag["key_found"]),
+            ("Client created",                   diag["client_created"]),
+            ("Test query to database succeeded", diag["query_succeeded"]),
+        ]
+        for label, ok in steps:
+            if ok:
+                st.markdown("✅ " + label)
+            else:
+                st.markdown("⬜ " + label)
+                break
+        if diag["url_preview"]:
+            st.caption("URL detected: " + diag["url_preview"])
+        if diag["error"] and diag["secrets_section_found"]:
+            st.error(diag["error"])
+        st.caption(
+            "After changing Secrets on Streamlit Cloud, wait ~20–30 sec and reboot "
+            "the app (⋮ menu → Reboot app) to pick them up."
+        )
 
 
 if page == "⚙️ Settings":
     st.title("⚙️ Settings")
-    st.caption("Each section is its own tab — pick one below, no more scrolling. Edits apply when you hit Save.")
+    st.caption("Pick a section below. Edit values, then hit **Save & recalculate** — "
+               "your changes are saved automatically and persist across refreshes.")
 
     tab_areas, tab_orders, tab_io, tab_db, tab_conv = st.tabs([
         "🗺️ Storage Areas",
         "📦 Order Types",
         "💾 Import / Export",
-        "🗄️ Database",
+        "💾 Data & Storage",
         "🔁 Unit Converter",
     ])
 
