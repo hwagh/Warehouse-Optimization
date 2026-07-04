@@ -18,6 +18,9 @@ storage (values reset on refresh) so it still works without a database.
 
 from __future__ import annotations
 from typing import List, Optional
+import copy
+import json
+import os
 import streamlit as st
 
 from config import (
@@ -28,6 +31,104 @@ from config import (
 # Default scenario name — single shared scenario for the internal demo.
 # Could be extended later to support multiple named scenarios per user.
 SCENARIO_NAME = "default"
+
+# ── Local file fallback ───────────────────────────────────────────────────────
+# When no Supabase database is configured, edits are persisted to a JSON file on
+# the server so they survive page refreshes with zero setup. (On ephemeral hosts
+# like Streamlit Cloud this resets on reboot/redeploy — configure Supabase for
+# durable, multi-user persistence.) Override the path with WAREHOUSE_STATE_PATH.
+_LOCAL_PATH = os.environ.get(
+    "WAREHOUSE_STATE_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".warehouse_state.json"),
+)
+
+
+def _area_to_dict(a: StorageArea) -> dict:
+    return {
+        "id": a.id, "name": a.name, "zone": a.zone,
+        "rack_length_cuft": a.rack_length_cuft, "rack_depth_cuft": a.rack_depth_cuft,
+        "rack_height_cuft": a.rack_height_cuft, "num_racks": a.num_racks,
+        "box_length_cuft": a.box_length_cuft, "box_depth_cuft": a.box_depth_cuft,
+        "box_height_cuft": a.box_height_cuft, "efficiency": a.efficiency,
+        "units_per_box": a.units_per_box, "max_concurrent_boxes": a.max_concurrent_boxes,
+    }
+
+
+def _area_from_dict(d: dict) -> StorageArea:
+    return StorageArea(
+        id=d["id"], name=d["name"], zone=d["zone"],
+        rack_length_cuft=float(d["rack_length_cuft"]), rack_depth_cuft=float(d["rack_depth_cuft"]),
+        rack_height_cuft=float(d["rack_height_cuft"]), num_racks=int(d["num_racks"]),
+        box_length_cuft=float(d["box_length_cuft"]), box_depth_cuft=float(d["box_depth_cuft"]),
+        box_height_cuft=float(d["box_height_cuft"]), efficiency=float(d["efficiency"]),
+        units_per_box=float(d["units_per_box"]),
+        max_concurrent_boxes=(int(d["max_concurrent_boxes"]) if d.get("max_concurrent_boxes") is not None else None),
+    )
+
+
+def _ot_to_dict(ot: OrderType) -> dict:
+    return {
+        "id": ot.id, "name": ot.name, "daily_volume": ot.daily_volume,
+        "avg_units_per_order": ot.avg_units_per_order,
+        "paper_pct": ot.storage_split.paper_pct, "consumable_pct": ot.storage_split.consumable_pct,
+        "cust1_pct": ot.customer_split.cust1_pct, "cust2_pct": ot.customer_split.cust2_pct,
+        "packout_pct": ot.kitting_split.packout_pct, "kitting_pct": ot.kitting_split.kitting_pct,
+    }
+
+
+def _ot_from_dict(d: dict) -> OrderType:
+    return OrderType(
+        id=d["id"], name=d["name"], daily_volume=int(d["daily_volume"]),
+        avg_units_per_order=int(d["avg_units_per_order"]),
+        storage_split=StorageSplit(paper_pct=float(d["paper_pct"]), consumable_pct=float(d["consumable_pct"])),
+        customer_split=CustomerSplit(cust1_pct=float(d["cust1_pct"]), cust2_pct=float(d["cust2_pct"])),
+        kitting_split=KittingSplit(packout_pct=float(d["packout_pct"]), kitting_pct=float(d["kitting_pct"])),
+    )
+
+
+def _local_save(areas: List[StorageArea], order_types: List[OrderType]) -> bool:
+    try:
+        tmp = _LOCAL_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({
+                "areas": [_area_to_dict(a) for a in areas],
+                "order_types": [_ot_to_dict(o) for o in order_types],
+            }, f, indent=2)
+        os.replace(tmp, _LOCAL_PATH)   # atomic write
+        return True
+    except Exception as e:
+        try:
+            st.error("Local save failed: " + str(e))
+        except Exception:
+            pass
+        return False
+
+
+def _local_load():
+    """Return (areas, order_types) from the JSON file, or (None, None)."""
+    try:
+        if not os.path.exists(_LOCAL_PATH):
+            return None, None
+        with open(_LOCAL_PATH) as f:
+            data = json.load(f)
+        areas = [_area_from_dict(d) for d in data.get("areas", [])] or None
+        order_types = [_ot_from_dict(d) for d in data.get("order_types", [])] or None
+        return areas, order_types
+    except Exception:
+        return None, None
+
+
+def _local_clear() -> None:
+    try:
+        if os.path.exists(_LOCAL_PATH):
+            os.remove(_LOCAL_PATH)
+    except Exception:
+        pass
+
+
+def storage_mode() -> str:
+    """Where edits persist: 'database' (Supabase) or 'local' (JSON file)."""
+    return "database" if is_db_configured() else "local"
 
 
 def get_client():
@@ -249,20 +350,39 @@ def load_order_types() -> Optional[List[OrderType]]:
 # ── Combined helpers ──────────────────────────────────────────────────────────
 
 def save_all(areas: List[StorageArea], order_types: List[OrderType]) -> bool:
-    ok1 = save_areas(areas)
-    ok2 = save_order_types(order_types)
-    return ok1 and ok2
+    """Persist to Supabase if configured, otherwise to the local JSON file."""
+    if is_db_configured():
+        ok1 = save_areas(areas)
+        ok2 = save_order_types(order_types)
+        return ok1 and ok2
+    return _local_save(areas, order_types)
+
+
+def reset_to_defaults() -> bool:
+    """Clear stored config so the app returns to factory defaults."""
+    if is_db_configured():
+        return save_all(list(DEFAULT_AREAS), list(DEFAULT_ORDER_TYPES))
+    _local_clear()
+    return True
 
 
 def load_all():
     """
-    Returns (areas, order_types). Falls back to defaults for whichever
-    part is missing or if the database isn't configured at all.
+    Returns (areas, order_types). Order of precedence: Supabase (if configured
+    and populated) → local JSON file → built-in defaults, resolved per-part.
     """
     areas = load_areas()
     order_types = load_order_types()
+
+    if areas is None or order_types is None:
+        local_areas, local_orders = _local_load()
+        if areas is None:
+            areas = local_areas
+        if order_types is None:
+            order_types = local_orders
+
     if areas is None:
-        areas = [a for a in DEFAULT_AREAS]
+        areas = [copy.deepcopy(a) for a in DEFAULT_AREAS]
     if order_types is None:
-        order_types = [o for o in DEFAULT_ORDER_TYPES]
+        order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
     return areas, order_types

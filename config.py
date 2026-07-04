@@ -209,11 +209,14 @@ DEFAULT_AREAS: List[StorageArea] = [
         max_concurrent_boxes=3304,
     ),
     StorageArea(
-        # No capacity workbook for final assembly — estimates, volume-based (no cap)
+        # Section 100 — 32 racks × 39 cells (1,248 cells), 1,087 m³ raw volume.
+        # Capacity 8,118 boxes = 6,165 lower (firm field counts) + 1,953 upper
+        # (estimate, pending confirmation). Rep box = "small white" 32.5×45×55 cm.
         id="packout", name="Packout – Final Assembly", zone="100",
-        rack_length_cuft=4.0, rack_depth_cuft=2.0, rack_height_cuft=6.0,
-        num_racks=19, efficiency=0.85,
-        box_length_cuft=1.0, box_depth_cuft=1.0, box_height_cuft=1.5, units_per_box=6.0,
+        rack_length_cuft=85.859, rack_depth_cuft=1.739, rack_height_cuft=8.038,
+        num_racks=32, efficiency=0.65,
+        box_length_cuft=1.066, box_depth_cuft=1.476, box_height_cuft=1.804, units_per_box=6.0,
+        max_concurrent_boxes=8118,
     ),
 ]
 

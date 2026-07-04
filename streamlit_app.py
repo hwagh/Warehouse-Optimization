@@ -7,7 +7,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
-import copy, sys, os
+import copy, sys, os, json
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -129,6 +129,57 @@ def fmt_vol(cuft_value: float, decimals: int = 1) -> str:
     return f"{to_display(cuft_value):,.{decimals}f} {unit_label()}"
 
 
+# ── linear dimension helpers ─────────────────────────────────────────────────
+# Rack/box L·D·H are stored internally in FEET (volume = L×D×H in cu ft), but the
+# source data and the people using this app think in centimetres. These convert
+# between the internal feet and the on-screen centimetres for dimension fields.
+FT_TO_CM = 30.48
+CUFT_TO_M3 = 1 / 35.3147
+
+def len_to_cm(feet: float) -> float:
+    """Internal feet → centimetres (for showing a dimension)."""
+    return feet * FT_TO_CM
+
+def cm_to_len(cm: float) -> float:
+    """Centimetres (typed in) → internal feet."""
+    return cm / FT_TO_CM
+
+def fmt_dims_cm(l_ft: float, d_ft: float, h_ft: float, decimals: int = 0) -> str:
+    """Format an L×D×H triple (stored in feet) as centimetres."""
+    return "×".join(f"{len_to_cm(v):.{decimals}f}" for v in (l_ft, d_ft, h_ft))
+
+
+def _config_signature() -> str:
+    """Fingerprint of the current config at the *editable* precision.
+
+    Dimensions are compared as centimetres rounded to 0.1 (what the grid shows),
+    so the tiny cm↔ft round-trip drift never counts as a real edit — only a value
+    a user actually changed does. Used to drive auto-save.
+    """
+    def area_key(a):
+        return [
+            a.id, a.name, a.zone,
+            round(len_to_cm(a.rack_length_cuft), 1), round(len_to_cm(a.rack_depth_cuft), 1),
+            round(len_to_cm(a.rack_height_cuft), 1), int(a.num_racks),
+            round(len_to_cm(a.box_length_cuft), 1), round(len_to_cm(a.box_depth_cuft), 1),
+            round(len_to_cm(a.box_height_cuft), 1), round(a.efficiency, 4),
+            round(a.units_per_box, 3), a.max_concurrent_boxes,
+        ]
+
+    def ot_key(o):
+        return [
+            o.id, o.name, int(o.daily_volume), int(o.avg_units_per_order),
+            round(o.storage_split.paper_pct, 3), round(o.storage_split.consumable_pct, 3),
+            round(o.customer_split.cust1_pct, 3), round(o.customer_split.cust2_pct, 3),
+            round(o.kitting_split.packout_pct, 3), round(o.kitting_split.kitting_pct, 3),
+        ]
+
+    return json.dumps({
+        "a": [area_key(a) for a in st.session_state.areas],
+        "o": [ot_key(o) for o in st.session_state.order_types],
+    }, sort_keys=True, default=str)
+
+
 # ── Single-file CSV template ─────────────────────────────────────────────────
 # One CSV with a SECTION column keeps everything together and stays
 # human-readable — open in Excel, fill in, upload back.
@@ -144,13 +195,13 @@ AREA_COLS = [
     ("area_id",              "Area ID",             "Unique key - do not change"),
     ("area_name",            "Area Name",           "Display name - safe to edit"),
     ("zone",                 "Zone",                "Zone code - do not change"),
-    ("rack_length_cuft",     "Rack Length (cu ft)", "Length of one rack in cubic feet"),
-    ("rack_depth_cuft",      "Rack Depth (cu ft)",  "Depth of one rack in cubic feet"),
-    ("rack_height_cuft",     "Rack Height (cu ft)", "Height of one rack in cubic feet"),
+    ("rack_length_cuft",     "Rack Length (cm)",    "Length of one rack in centimetres"),
+    ("rack_depth_cuft",      "Rack Depth (cm)",     "Depth of one rack in centimetres"),
+    ("rack_height_cuft",     "Rack Height (cm)",    "Height of one rack in centimetres"),
     ("num_racks",            "Number of Racks",     "How many racks in this area"),
-    ("box_length_cuft",      "Box Length (cu ft)",  "Length of average box in cubic feet"),
-    ("box_depth_cuft",       "Box Width (cu ft)",   "Width of average box in cubic feet"),
-    ("box_height_cuft",      "Box Height (cu ft)",  "Height of average box in cubic feet"),
+    ("box_length_cuft",      "Box Length (cm)",     "Length of average box in centimetres"),
+    ("box_depth_cuft",       "Box Width (cm)",      "Width of average box in centimetres"),
+    ("box_height_cuft",      "Box Height (cm)",     "Height of average box in centimetres"),
     ("efficiency",           "Efficiency (0-1)",    "Usable fraction, e.g. 0.75 = 75% after aisles"),
     ("units_per_box",        "Units per Box",       "Average units that fit in one box in this area"),
     ("max_concurrent_boxes", "Max Concurrent Boxes","Hard cap on boxes at once - leave blank for no cap"),
@@ -235,8 +286,11 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
     for r_idx, a in enumerate(areas, start=3):
         values = [
             a.id, a.name, a.zone,
-            a.rack_length_cuft, a.rack_depth_cuft, a.rack_height_cuft, a.num_racks,
-            a.box_length_cuft, a.box_depth_cuft, a.box_height_cuft,
+            # dimensions exported in centimetres (internal storage is feet)
+            round(len_to_cm(a.rack_length_cuft), 1), round(len_to_cm(a.rack_depth_cuft), 1),
+            round(len_to_cm(a.rack_height_cuft), 1), a.num_racks,
+            round(len_to_cm(a.box_length_cuft), 1), round(len_to_cm(a.box_depth_cuft), 1),
+            round(len_to_cm(a.box_height_cuft), 1),
             a.efficiency, a.units_per_box,
             a.max_concurrent_boxes if a.max_concurrent_boxes is not None else None,
         ]
@@ -308,13 +362,14 @@ def excel_bytes_to_config(file_bytes):
             id=str(d["area_id"]).strip(),
             name=str(d["area_name"]).strip(),
             zone=str(d["zone"]).strip(),
-            rack_length_cuft=float(d["rack_length_cuft"]),
-            rack_depth_cuft=float(d["rack_depth_cuft"]),
-            rack_height_cuft=float(d["rack_height_cuft"]),
+            # template columns are in centimetres → convert to internal feet
+            rack_length_cuft=cm_to_len(float(d["rack_length_cuft"])),
+            rack_depth_cuft=cm_to_len(float(d["rack_depth_cuft"])),
+            rack_height_cuft=cm_to_len(float(d["rack_height_cuft"])),
             num_racks=int(float(d["num_racks"])),
-            box_length_cuft=float(d["box_length_cuft"]),
-            box_depth_cuft=float(d["box_depth_cuft"]),
-            box_height_cuft=float(d["box_height_cuft"]),
+            box_length_cuft=cm_to_len(float(d["box_length_cuft"])),
+            box_depth_cuft=cm_to_len(float(d["box_depth_cuft"])),
+            box_height_cuft=cm_to_len(float(d["box_height_cuft"])),
             efficiency=float(d["efficiency"]),
             units_per_box=float(d["units_per_box"]),
             max_concurrent_boxes=max_b,
@@ -353,12 +408,105 @@ if "areas" not in st.session_state:
     _loaded_areas, _loaded_orders = db.load_all()
     st.session_state.areas       = [copy.deepcopy(a) for a in _loaded_areas]
     st.session_state.order_types = [copy.deepcopy(o) for o in _loaded_orders]
+    # remember what's persisted so auto-save only fires on real edits
+    st.session_state._saved_sig = _config_signature()
 
 def get_engine():
     return WarehouseEngine(
         areas=[copy.deepcopy(a) for a in st.session_state.areas],
         order_types=[copy.deepcopy(o) for o in st.session_state.order_types],
     )
+
+
+def analysis_report_excel_bytes(engine, multiplier: float) -> bytes:
+    """Build a formatted, shareable Excel report of the current analysis."""
+    snap = engine.snapshot(multiplier=multiplier)
+    wb = Workbook()
+
+    def _sheet_header(ws, headers, width=20):
+        for ci, label in enumerate(headers, start=1):
+            c = ws.cell(1, ci, label)
+            c.font, c.fill = HEADER_FONT, HEADER_FILL
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = THIN_BORDER
+            ws.column_dimensions[get_column_letter(ci)].width = width
+        ws.row_dimensions[1].height = 28
+        ws.freeze_panes = "A2"
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Summary"
+    ws.sheet_view.showGridLines = False
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 22
+    ws["A1"] = "WAREHOUSE CAPACITY — ANALYSIS REPORT"
+    ws["A1"].font = TITLE_FONT
+    ws["A2"] = ("Generated " + datetime.now().strftime("%Y-%m-%d %H:%M")
+                + "  ·  Volume multiplier x" + format(multiplier, ".1f"))
+    ws["A2"].font = SUBLABEL_FONT
+    summary = [
+        ("Total capacity (boxes)",        snap.total_capacity_boxes),
+        ("Total capacity (units)",        snap.total_capacity_units),
+        ("Total load (boxes)",            int(snap.total_load_boxes)),
+        ("Overall utilisation",           format(snap.overall_utilization, ".1f") + "%"),
+        ("Areas over capacity",           len(snap.bottlenecks)),
+        ("Areas near limit (85–100%)",    len(snap.warnings)),
+    ]
+    r = 4
+    for label, val in summary:
+        ws.cell(r, 1, label).font = BODY_FONT
+        ws.cell(r, 2, val).font = Font(bold=True, size=11, name="Calibri")
+        r += 1
+
+    # ── Areas ─────────────────────────────────────────────────────────────────
+    ws_a = wb.create_sheet("Areas")
+    ws_a.sheet_view.showGridLines = False
+    _sheet_header(ws_a, ["Area", "Zone", "Box L×W×H (cm)", "Capacity (boxes)",
+                         "Load (boxes)", "Utilisation %", "Status",
+                         "Capacity (units)", "Load (units)"])
+    for ri, a in enumerate(snap.areas, start=2):
+        vals = [
+            a.area.name, a.area.zone,
+            fmt_dims_cm(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
+            a.capacity_boxes, int(a.load_boxes), round(a.utilization_pct, 1),
+            status_label(a.utilization_pct), a.capacity_units, int(a.load_units),
+        ]
+        for ci, v in enumerate(vals, start=1):
+            cell = ws_a.cell(ri, ci, v)
+            cell.font, cell.border = BODY_FONT, THIN_BORDER
+
+    # ── Zones ─────────────────────────────────────────────────────────────────
+    zdf = engine.zone_summary(multiplier)
+    ws_z = wb.create_sheet("Zones")
+    ws_z.sheet_view.showGridLines = False
+    zcols = ["zone_code", "zone_name", "areas", "capacity_boxes", "load_boxes",
+             "capacity_units", "load_units", "utilization_pct"]
+    zlabels = ["Zone", "Name", "Areas", "Capacity (boxes)", "Load (boxes)",
+               "Capacity (units)", "Load (units)", "Utilisation %"]
+    _sheet_header(ws_z, zlabels)
+    for ri, (_, row) in enumerate(zdf.iterrows(), start=2):
+        for ci, key in enumerate(zcols, start=1):
+            cell = ws_z.cell(ri, ci, row[key])
+            cell.font, cell.border = BODY_FONT, THIN_BORDER
+
+    # ── Growth to capacity ────────────────────────────────────────────────────
+    ws_b = wb.create_sheet("Growth to capacity")
+    ws_b.sheet_view.showGridLines = False
+    _sheet_header(ws_b, ["Area", "Reaches 85% at", "Reaches 100% at"], width=24)
+    seq85  = {n: m for m, n, _ in engine.bottleneck_sequence(threshold_pct=85.0,  max_mult=20.0)}
+    seq100 = {n: m for m, n, _ in engine.bottleneck_sequence(threshold_pct=100.0, max_mult=20.0)}
+    names  = [a.area.name for a in snap.areas]
+    for ri, name in enumerate(names, start=2):
+        ws_b.cell(ri, 1, name).font = BODY_FONT
+        ws_b.cell(ri, 2, ("x" + format(seq85[name], ".1f")) if name in seq85 else "—").font = BODY_FONT
+        ws_b.cell(ri, 3, ("x" + format(seq100[name], ".1f")) if name in seq100 else "beyond x20").font = BODY_FONT
+        for ci in range(1, 4):
+            ws_b.cell(ri, ci).border = THIN_BORDER
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
 
 # ── sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -368,10 +516,10 @@ with st.sidebar:
         ["📦 Analysis", "🏭 Material flow", "⚙️ Settings"],
         label_visibility="collapsed")
     st.markdown("---")
-    if db.is_db_configured():
-        st.caption("🟢 Connected to database — changes persist")
+    if db.storage_mode() == "database":
+        st.caption("🟢 Connected to database — changes persist across devices")
     else:
-        st.caption("⚪ No database configured — changes are session-only")
+        st.caption("🟢 Saving locally — changes persist across refreshes on this server")
     st.markdown("---")
     st.markdown("**Quick status at x1.0**")
     _snap = get_engine().snapshot(1.0)
@@ -382,7 +530,7 @@ with st.sidebar:
     st.markdown("---")
     st.caption("**Volume unit**")
     if "display_unit" not in st.session_state:
-        st.session_state.display_unit = "cu ft"
+        st.session_state.display_unit = "cu m"
     selected_unit = st.selectbox(
         "Unit", list(UNITS.keys()),
         index=list(UNITS.keys()).index(st.session_state.display_unit),
@@ -638,23 +786,23 @@ def _render_unit_converter():
 def _render_area_settings():
     """Editable grid of ALL storage areas — one row each, no vertical scrolling."""
     st.subheader("Storage areas")
-    ul = unit_label()
     st.caption(
         "Every area is one row — edit any cell directly. Rack and box dimensions are in "
-        + ul + ". Capacity updates live in the preview below; changes apply when you hit Save."
+        "**centimetres (cm)**; volume shows in **m³**. Capacity updates live in the preview "
+        "below; changes apply when you hit Save."
     )
 
     df = pd.DataFrame([{
         "ID":        a.id,
         "Area":      a.name,
         "Zone":      a.zone,
-        "Rack L":    round(to_display(a.rack_length_cuft), 2),
-        "Rack D":    round(to_display(a.rack_depth_cuft), 2),
-        "Rack H":    round(to_display(a.rack_height_cuft), 2),
+        "Rack L":    round(len_to_cm(a.rack_length_cuft), 1),
+        "Rack D":    round(len_to_cm(a.rack_depth_cuft), 1),
+        "Rack H":    round(len_to_cm(a.rack_height_cuft), 1),
         "# Racks":   int(a.num_racks),
-        "Box L":     round(to_display(a.box_length_cuft), 3),
-        "Box W":     round(to_display(a.box_depth_cuft), 3),
-        "Box H":     round(to_display(a.box_height_cuft), 3),
+        "Box L":     round(len_to_cm(a.box_length_cuft), 1),
+        "Box W":     round(len_to_cm(a.box_depth_cuft), 1),
+        "Box H":     round(len_to_cm(a.box_height_cuft), 1),
         "Eff.":      float(a.efficiency),
         "Units/box": float(a.units_per_box),
         "Max boxes": int(a.max_concurrent_boxes) if a.max_concurrent_boxes is not None else 0,
@@ -666,27 +814,28 @@ def _render_area_settings():
         df, key="areas_editor", hide_index=True, num_rows="fixed",
         width="stretch", height=grid_h, row_height=row_h,
         column_config={
-            "Area":      st.column_config.TextColumn("Area", width="medium"),
-            "Zone":      st.column_config.TextColumn("Zone", disabled=True, width="small"),
-            "Rack L":    st.column_config.NumberColumn("Rack L (" + ul + ")", min_value=0.001, step=0.1,  format="%.2f"),
-            "Rack D":    st.column_config.NumberColumn("Rack D (" + ul + ")", min_value=0.001, step=0.1,  format="%.2f"),
-            "Rack H":    st.column_config.NumberColumn("Rack H (" + ul + ")", min_value=0.001, step=0.1,  format="%.2f"),
-            "# Racks":   st.column_config.NumberColumn("# Racks",  min_value=1,     step=1,    format="%d"),
-            "Box L":     st.column_config.NumberColumn("Box L (" + ul + ")", min_value=0.001, step=0.05, format="%.3f"),
-            "Box W":     st.column_config.NumberColumn("Box W (" + ul + ")", min_value=0.001, step=0.05, format="%.3f"),
-            "Box H":     st.column_config.NumberColumn("Box H (" + ul + ")", min_value=0.001, step=0.05, format="%.3f"),
-            "Eff.":      st.column_config.NumberColumn("Eff. (0–1)", min_value=0.1, max_value=1.0, step=0.01, format="%.2f"),
-            "Units/box": st.column_config.NumberColumn("Units/box", min_value=1.0, step=1.0, format="%.0f"),
+            "Area":      st.column_config.TextColumn("Area", width="medium", help="Display name for this storage area."),
+            "Zone":      st.column_config.TextColumn("Zone", disabled=True, width="small", help="Flow zone (fixed)."),
+            "Rack L":    st.column_config.NumberColumn("Rack L (cm)", min_value=0.1, step=1.0, format="%.1f", help="Length of one rack, in centimetres."),
+            "Rack D":    st.column_config.NumberColumn("Rack D (cm)", min_value=0.1, step=1.0, format="%.1f", help="Depth of one rack, in centimetres."),
+            "Rack H":    st.column_config.NumberColumn("Rack H (cm)", min_value=0.1, step=1.0, format="%.1f", help="Height of one rack, in centimetres."),
+            "# Racks":   st.column_config.NumberColumn("# Racks",  min_value=1,     step=1,    format="%d", help="How many racks of this size are in the area."),
+            "Box L":     st.column_config.NumberColumn("Box L (cm)", min_value=0.1, step=1.0, format="%.1f", help="Length of the typical box/pallet stored here."),
+            "Box W":     st.column_config.NumberColumn("Box W (cm)", min_value=0.1, step=1.0, format="%.1f", help="Width of the typical box/pallet."),
+            "Box H":     st.column_config.NumberColumn("Box H (cm)", min_value=0.1, step=1.0, format="%.1f", help="Height of the typical box/pallet."),
+            "Eff.":      st.column_config.NumberColumn("Eff. (0–1)", min_value=0.1, max_value=1.0, step=0.01, format="%.2f", help="Usable fraction of rack volume after aisles/reach space. 0.75 = 75%."),
+            "Units/box": st.column_config.NumberColumn("Units/box", min_value=1.0, step=1.0, format="%.0f", help="Average number of individual units in one box."),
             "Max boxes": st.column_config.NumberColumn("Max boxes", min_value=0, step=10, format="%d",
-                                                       help="Optional hard cap. 0 = no cap (volume-based)."),
+                                                       help="Optional hard cap on boxes (audited count). 0 = no cap, use volume."),
         },
     )
 
     # ── build updates + live capacity preview from the edited grid ────────────
+    # Dimensions come in as centimetres; convert back to internal feet.
     area_updates, prev_rows = {}, []
     for aid, row in edited.iterrows():
-        rl, rd, rh = to_cuft(row["Rack L"]), to_cuft(row["Rack D"]), to_cuft(row["Rack H"])
-        bl, bw, bh = to_cuft(row["Box L"]),  to_cuft(row["Box W"]),  to_cuft(row["Box H"])
+        rl, rd, rh = cm_to_len(row["Rack L"]), cm_to_len(row["Rack D"]), cm_to_len(row["Rack H"])
+        bl, bw, bh = cm_to_len(row["Box L"]),  cm_to_len(row["Box W"]),  cm_to_len(row["Box H"])
         racks = int(row["# Racks"]); eff = float(row["Eff."]); upb = float(row["Units/box"])
         max_raw = int(row["Max boxes"]); max_b = max_raw if max_raw > 0 else None
 
@@ -704,7 +853,7 @@ def _render_area_settings():
         )
         prev_rows.append({
             "Area":                 str(row["Area"]),
-            "Volume (" + ul + ")":  round(to_display(total_vol), 1),
+            "Volume (m³)":          round(total_vol * CUFT_TO_M3, 1),
             "Capacity (boxes)":     cap,
             "Capacity (units)":     int(cap * upb),
             "Cap source":           "🔢 box cap" if (max_b and max_b < vol_cap) else "volume",
@@ -738,8 +887,8 @@ def _render_order_settings():
         "Kitting %": float(ot.kitting_split.kitting_pct),
     } for ot in st.session_state.order_types]).set_index("ID")
 
-    def pct(label):
-        return st.column_config.NumberColumn(label, min_value=0.0, max_value=100.0, step=1.0, format="%.0f")
+    def pct(label, help=None):
+        return st.column_config.NumberColumn(label, min_value=0.0, max_value=100.0, step=1.0, format="%.0f", help=help)
 
     row_h  = 29
     grid_h = int((len(df) + 1) * row_h + 3)
@@ -747,15 +896,15 @@ def _render_order_settings():
         df, key="orders_editor", hide_index=True, num_rows="fixed",
         width="stretch", height=grid_h, row_height=row_h,
         column_config={
-            "Order":     st.column_config.TextColumn("Order", width="medium"),
-            "Daily vol": st.column_config.NumberColumn("Daily vol", min_value=1, step=1, format="%d"),
-            "Avg units": st.column_config.NumberColumn("Avg units", min_value=1, step=1, format="%d"),
-            "600 %":     pct("600 Paper %"),
-            "400 %":     pct("400 Cons %"),
-            "300 %":     pct("300 Cust1 %"),
-            "200 %":     pct("200 Cust2 %"),
-            "Packout %": pct("Packout %"),
-            "Kitting %": pct("Kitting %"),
+            "Order":     st.column_config.TextColumn("Order", width="medium", help="Order type name/code."),
+            "Daily vol": st.column_config.NumberColumn("Daily vol", min_value=1, step=1, format="%d", help="Number of orders of this type per day."),
+            "Avg units": st.column_config.NumberColumn("Avg units", min_value=1, step=1, format="%d", help="Average units per order."),
+            "600 %":     pct("600 Paper %",  "Share of units drawn from Paper (600). 600% + 400% must total 100%."),
+            "400 %":     pct("400 Cons %",   "Share drawn from Consumables (400). 600% + 400% must total 100%."),
+            "300 %":     pct("300 Cust1 %",  "Of the consumables, share to Customer zone 300. 300% + 200% must total 100%."),
+            "200 %":     pct("200 Cust2 %",  "Of the consumables, share to Customer zone 200. 300% + 200% must total 100%."),
+            "Packout %": pct("Packout %",    "Share going straight to packout. Packout% + Kitting% must total 100%."),
+            "Kitting %": pct("Kitting %",    "Share routed through kitting first. Packout% + Kitting% must total 100%."),
         },
     )
 
@@ -791,15 +940,17 @@ def _render_order_settings():
     if all_ok:
         st.success("All split pairs total 100%.")
     else:
-        st.warning("Some split pairs don't total 100% (see ⚠️ rows) — fix before saving for accurate results.")
-    return order_updates
+        st.warning("Some split pairs don't total 100% (see ⚠️ rows) — auto-save is paused until every pair totals 100%.")
+    return order_updates, all_ok
 
 
-def _apply_settings(area_updates, order_updates):
-    """Write the collected edits back into session state (and DB if configured)."""
+def _apply_updates(area_updates, order_updates):
+    """Write the collected edits back into the in-memory session state only."""
     area_map = {a.id: a for a in st.session_state.areas}
     for aid, u in area_updates.items():
-        a = area_map[aid]
+        a = area_map.get(aid)
+        if a is None:
+            continue
         a.name                = u.get("name", a.name)
         a.rack_length_cuft    = u["rack_length_cuft"]
         a.rack_depth_cuft     = u["rack_depth_cuft"]
@@ -814,7 +965,9 @@ def _apply_settings(area_updates, order_updates):
 
     ot_map = {o.id: o for o in st.session_state.order_types}
     for oid, u in order_updates.items():
-        ot = ot_map[oid]
+        ot = ot_map.get(oid)
+        if ot is None:
+            continue
         ot.name                = u.get("name", ot.name)
         ot.daily_volume        = u["daily_volume"]
         ot.avg_units_per_order = u["avg_units_per_order"]
@@ -822,15 +975,21 @@ def _apply_settings(area_updates, order_updates):
         ot.customer_split = CustomerSplit(cust1_pct=u["cust1_pct"],     cust2_pct=u["cust2_pct"])
         ot.kitting_split  = KittingSplit(packout_pct=u["packout_pct"],  kitting_pct=u["kitting_pct"])
 
-    st.success("Settings saved.")
-    if db.is_db_configured():
-        saved_ok = db.save_all(st.session_state.areas, st.session_state.order_types)
-        if saved_ok:
-            st.success("✅ Saved to database — values will persist across sessions.")
-        else:
-            st.warning("⚠️ Saved locally but database write failed — check the error above.")
-    else:
-        st.info("ℹ️ No database configured — values are session-only and will reset on refresh. See README to set up Supabase.")
+
+def _autosave_if_changed(valid: bool):
+    """Persist automatically when the config changed and is valid.
+
+    Returns a status string: 'saved', 'unchanged', or 'blocked'.
+    """
+    sig = _config_signature()
+    if sig == st.session_state.get("_saved_sig"):
+        return "unchanged"
+    if not valid:
+        return "blocked"
+    if db.save_all(st.session_state.areas, st.session_state.order_types):
+        st.session_state._saved_sig = sig
+        return "saved"
+    return "blocked"
 
 
 def _render_excel_io():
@@ -877,10 +1036,10 @@ def _render_excel_io():
                     st.dataframe(
                         pd.DataFrame([{
                             "Area": a.name, "Zone": a.zone,
-                            "L×D×H (cu ft)": f"{a.rack_length_cuft}×{a.rack_depth_cuft}×{a.rack_height_cuft}",
+                            "Rack L×D×H (cm)": fmt_dims_cm(a.rack_length_cuft, a.rack_depth_cuft, a.rack_height_cuft),
                             "Racks": a.num_racks,
-                            "Volume (cu ft)": round(a.volume_cuft, 1),
-                            "Box L×W×H (cu ft)": str(a.box_length_cuft)+"×"+str(a.box_depth_cuft)+"×"+str(a.box_height_cuft),
+                            "Volume (m³)": round(a.volume_cuft * CUFT_TO_M3, 1),
+                            "Box L×W×H (cm)": fmt_dims_cm(a.box_length_cuft, a.box_depth_cuft, a.box_height_cuft),
                             "Efficiency": a.efficiency,
                             "Units/box": a.units_per_box,
                             "Max boxes": a.max_concurrent_boxes or "—",
@@ -906,11 +1065,12 @@ def _render_excel_io():
                 if st.button("✅ Apply imported configuration", type="primary", width="stretch", key="apply_excel_config"):
                     st.session_state.areas = preview_areas
                     st.session_state.order_types = preview_orders
-                    if db.is_db_configured():
-                        db.save_all(preview_areas, preview_orders)
-                        st.success("Configuration loaded and saved to database.")
+                    st.session_state._saved_sig = _config_signature()
+                    if db.save_all(preview_areas, preview_orders):
+                        where = "the database" if db.storage_mode() == "database" else "local storage"
+                        st.success("Configuration loaded and saved to " + where + ".")
                     else:
-                        st.success("Configuration loaded (session only — no database configured).")
+                        st.warning("Configuration loaded, but saving failed — applied for this session only.")
                     st.rerun()
 
             except Exception as e:
@@ -929,83 +1089,102 @@ def _render_excel_io():
 
 
 def _render_db_controls():
-    st.subheader("🗄️ Database controls")
-    if db.is_db_configured():
-        st.success("Database connected — Save & recalculate also writes here automatically.")
-        dbc1, dbc2 = st.columns(2)
-        with dbc1:
-            if st.button("🔄 Reload from database", width="stretch"):
-                _areas, _orders = db.load_all()
-                st.session_state.areas = _areas
-                st.session_state.order_types = _orders
-                st.success("Reloaded from database.")
-                st.rerun()
-        with dbc2:
-            if st.button("↩️ Reset to factory defaults", width="stretch"):
-                st.session_state.areas = [copy.deepcopy(a) for a in DEFAULT_AREAS]
-                st.session_state.order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
-                db.save_all(st.session_state.areas, st.session_state.order_types)
-                st.success("Reset to defaults and saved to database.")
-                st.rerun()
-    else:
-        st.warning(
-            "No database connected. Values only persist for this browser session. "
-            "See README.md for the one-time Supabase setup (free, ~5 minutes)."
+    st.subheader("💾 Data & storage")
+    mode = db.storage_mode()
+    if mode == "database":
+        st.success(
+            "🟢 **Connected to a database.** Every Save persists across sessions, "
+            "devices, and app restarts."
         )
-        with st.expander("🔍 Run connection diagnostic", expanded=True):
-            diag = db.diagnose()
-            steps = [
-                ("Secrets section [supabase] found", diag["secrets_section_found"]),
-                ("url value found",                  diag["url_found"]),
-                ("key value found",                  diag["key_found"]),
-                ("Client created",                   diag["client_created"]),
-                ("Test query to database succeeded", diag["query_succeeded"]),
-            ]
-            for label, ok in steps:
-                if ok:
-                    st.markdown("✅ " + label)
-                else:
-                    st.markdown("❌ " + label)
-                    break
-            if diag["url_preview"]:
-                st.caption("URL detected: " + diag["url_preview"])
-            if diag["error"]:
-                st.error(diag["error"])
-            st.caption(
-                "Run this after every change to Secrets — Streamlit Cloud needs "
-                "~20-30 seconds and sometimes a manual reboot (⋮ menu → Reboot app) "
-                "to pick up new secrets."
-            )
+    else:
+        st.info(
+            "🟢 **Your changes are saved automatically** and persist across page "
+            "refreshes. For durable multi-user storage that also survives server "
+            "restarts, you can optionally connect a free Supabase database below."
+        )
+
+    dbc1, dbc2 = st.columns(2)
+    with dbc1:
+        if st.button("🔄 Reload saved values", width="stretch",
+                     help="Discard unsaved edits and reload the last saved configuration."):
+            _areas, _orders = db.load_all()
+            st.session_state.areas = _areas
+            st.session_state.order_types = _orders
+            st.session_state._saved_sig = _config_signature()
+            st.session_state.pop("_confirm_reset", None)
+            st.success("Reloaded the saved configuration.")
+            st.rerun()
+    with dbc2:
+        if st.button("↩️ Reset to factory defaults", width="stretch",
+                     help="Replace everything with the built-in calibrated defaults."):
+            st.session_state._confirm_reset = True
+
+    # two-step confirmation so nothing is wiped by a stray click
+    if st.session_state.get("_confirm_reset"):
+        st.warning("**Reset everything to the built-in defaults?** This discards your current values.")
+        cc1, cc2 = st.columns(2)
+        if cc1.button("Yes, reset to defaults", type="primary", width="stretch", key="confirm_reset_yes"):
+            db.reset_to_defaults()
+            st.session_state.areas = [copy.deepcopy(a) for a in DEFAULT_AREAS]
+            st.session_state.order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
+            st.session_state._saved_sig = _config_signature()
+            st.session_state.pop("_confirm_reset", None)
+            st.success("Reset to the built-in defaults.")
+            st.rerun()
+        if cc2.button("Cancel", width="stretch", key="confirm_reset_no"):
+            st.session_state.pop("_confirm_reset", None)
+            st.rerun()
+
+    with st.expander("🔌 Connect a database (optional) — Supabase setup & diagnostic",
+                     expanded=False):
+        st.caption(
+            "Optional. Connect Supabase (free, ~5 min — see README) for storage that "
+            "persists across server restarts and is shared across everyone using the app."
+        )
+        diag = db.diagnose()
+        steps = [
+            ("Secrets section [supabase] found", diag["secrets_section_found"]),
+            ("url value found",                  diag["url_found"]),
+            ("key value found",                  diag["key_found"]),
+            ("Client created",                   diag["client_created"]),
+            ("Test query to database succeeded", diag["query_succeeded"]),
+        ]
+        for label, ok in steps:
+            if ok:
+                st.markdown("✅ " + label)
+            else:
+                st.markdown("⬜ " + label)
+                break
+        if diag["url_preview"]:
+            st.caption("URL detected: " + diag["url_preview"])
+        if diag["error"] and diag["secrets_section_found"]:
+            st.error(diag["error"])
+        st.caption(
+            "After changing Secrets on Streamlit Cloud, wait ~20–30 sec and reboot "
+            "the app (⋮ menu → Reboot app) to pick them up."
+        )
 
 
 if page == "⚙️ Settings":
     st.title("⚙️ Settings")
-    st.caption("Each section is its own tab — pick one below, no more scrolling. Edits apply when you hit Save.")
+    st.caption("Pick a section below. Edit values, then hit **Save & recalculate** — "
+               "your changes are saved automatically and persist across refreshes.")
+
+    save_status = st.empty()
 
     tab_areas, tab_orders, tab_io, tab_db, tab_conv = st.tabs([
         "🗺️ Storage Areas",
         "📦 Order Types",
         "💾 Import / Export",
-        "🗄️ Database",
+        "💾 Data & Storage",
         "🔁 Unit Converter",
     ])
 
-    area_updates, order_updates = {}, {}
-    save_from_areas = save_from_orders = False
-
     with tab_areas:
         area_updates = _render_area_settings()
-        st.markdown("---")
-        save_from_areas = st.button(
-            "💾 Save & recalculate", type="primary",
-            width="stretch", key="save_areas_btn")
 
     with tab_orders:
-        order_updates = _render_order_settings()
-        st.markdown("---")
-        save_from_orders = st.button(
-            "💾 Save & recalculate", type="primary",
-            width="stretch", key="save_orders_btn")
+        order_updates, orders_valid = _render_order_settings()
 
     with tab_io:
         _render_excel_io()
@@ -1016,11 +1195,17 @@ if page == "⚙️ Settings":
     with tab_conv:
         _render_unit_converter()
 
-    # Either Save button applies edits from BOTH editing tabs (they both render
-    # every run, so both update dicts are always populated).
-    if save_from_areas or save_from_orders:
-        _apply_settings(area_updates, order_updates)
-        st.rerun()
+    # ── auto-save: apply edits from both editors every run, persist when valid ──
+    # Both editors render on every run, so both update dicts are always current.
+    _apply_updates(area_updates, order_updates)
+    status = _autosave_if_changed(valid=orders_valid)
+    if status == "saved":
+        where = "database" if db.storage_mode() == "database" else "this server"
+        save_status.success("✅ All changes saved automatically to " + where + ".")
+    elif status == "blocked":
+        save_status.warning("⚠️ Changes are **not saved** — fix the order-type splits (each pair must total 100%).")
+    else:  # unchanged
+        save_status.caption("✓ All changes saved. Edits save automatically as you type — no button needed.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1030,20 +1215,44 @@ if page == "⚙️ Settings":
 elif page == "📦 Analysis":
     st.title("📦 Analysis")
 
+    if not st.session_state.get("_intro_dismissed"):
+        with st.container(border=True):
+            st.markdown("#### 👋 Welcome to the Warehouse Capacity Planner")
+            st.markdown(
+                "- **📦 Analysis** (this page) — how full each storage area is today. "
+                "Drag the **Volume multiplier** to simulate order growth and find bottlenecks.\n"
+                "- **🏭 Material flow** — how product moves from paper/consumables through the "
+                "customer zones to final packout.\n"
+                "- **⚙️ Settings** — edit rack & box sizes, order volumes, and splits. "
+                "Changes **save automatically** — no Save button needed.\n"
+                "- Use **⬇️ Download report** below to export the current numbers to Excel."
+            )
+            if st.button("Got it — hide this", key="dismiss_intro"):
+                st.session_state._intro_dismissed = True
+                st.rerun()
+
     multiplier = st.slider(
         "Volume multiplier", min_value=1.0, max_value=10.0,
-        value=1.0, step=0.1, format="x%.1f")
+        value=1.0, step=0.1, format="x%.1f",
+        help="Scale every order type's daily volume to model growth. x1.0 = today; "
+             "x2.0 = double the volume. Watch which areas turn red first.")
 
     engine = get_engine()
     snap   = engine.snapshot(multiplier=multiplier)
 
     k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Capacity (boxes)", str(snap.total_capacity_boxes))
-    k2.metric("Capacity (units)", str(snap.total_capacity_units))
-    k3.metric("Load (boxes)",     str(int(snap.total_load_boxes)))
-    k4.metric("Overall util.",    str(round(snap.overall_utilization, 1)) + "%")
-    k5.metric("Over capacity",    len(snap.bottlenecks))
-    k6.metric("Near limit",       len(snap.warnings))
+    k1.metric("Capacity (boxes)", str(snap.total_capacity_boxes),
+              help="Total boxes/pallets all storage areas can hold when full.")
+    k2.metric("Capacity (units)", str(snap.total_capacity_units),
+              help="Total individual units across all areas (boxes × units per box).")
+    k3.metric("Load (boxes)",     str(int(snap.total_load_boxes)),
+              help="Boxes needed for the current daily order volume at this multiplier.")
+    k4.metric("Overall util.",    str(round(snap.overall_utilization, 1)) + "%",
+              help="Total load ÷ total capacity. Above 85% is tight; 100%+ is over capacity.")
+    k5.metric("Over capacity",    len(snap.bottlenecks),
+              help="Number of areas above 100% utilisation — these are your bottlenecks.")
+    k6.metric("Near limit",       len(snap.warnings),
+              help="Number of areas between 85% and 100% — approaching capacity.")
 
     for a in snap.bottlenecks:
         st.error("BOTTLENECK — " + a.area.name + " at " + str(round(a.utilization_pct, 1)) + "%")
@@ -1051,6 +1260,16 @@ elif page == "📦 Analysis":
         st.warning("WARNING — " + a.area.name + " at " + str(round(a.utilization_pct, 1)) + "%")
     if not snap.bottlenecks and not snap.warnings:
         st.success("All areas within capacity at x" + str(multiplier))
+
+    _report_ts = datetime.now().strftime("%Y%m%d_%H%M")
+    st.download_button(
+        "⬇️ Download report (Excel)",
+        data=analysis_report_excel_bytes(engine, multiplier),
+        file_name="warehouse_analysis_x" + format(multiplier, ".1f") + "_" + _report_ts + ".xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        help="Export the current analysis (summary, per-area, per-zone, growth-to-capacity) "
+             "at this multiplier as a formatted Excel workbook to share.",
+    )
 
     st.markdown("---")
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -1095,8 +1314,8 @@ elif page == "📦 Analysis":
             rows.append({
                 "Area":         a.area.name,
                 "Zone":         a.area.zone,
-                "Box L×W×H": str(a.area.box_length_cuft)+"×"+str(a.area.box_depth_cuft)+"×"+str(a.area.box_height_cuft),
-                "Box vol (cu ft)": round(a.area.avg_box_size_cuft,3),
+                "Box L×W×H (cm)": fmt_dims_cm(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
+                "Box vol (cm³)": round(a.area.avg_box_size_cuft * 28316.8, 0),
                 "Units/box":    int(a.area.units_per_box),
                 "Load (boxes)": str(int(a.load_boxes)),
                 "Cap (boxes)":  str(a.capacity_boxes) + (" 🔢" if a.area.has_box_cap else ""),

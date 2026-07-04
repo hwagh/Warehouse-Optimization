@@ -1,1 +1,5 @@
 __pycache__/
+
+# Local persistence fallback (runtime state — not source)
+.warehouse_state.json
+.warehouse_state.json.tmp
