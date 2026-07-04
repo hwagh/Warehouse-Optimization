@@ -105,14 +105,17 @@ def _local_save(areas: List[StorageArea], order_types: List[OrderType]) -> bool:
 
 
 def _local_load():
-    """Return (areas, order_types) from the JSON file, or (None, None)."""
+    """Return (areas, order_types) from the JSON file, or (None, None) if there
+    is no saved file at all. An empty list is a *valid, saved* state (the user
+    cleared everything) and is returned as-is — it must NOT be treated as
+    'nothing saved', or a cleared config would keep resurrecting the defaults."""
     try:
         if not os.path.exists(_LOCAL_PATH):
             return None, None
         with open(_LOCAL_PATH) as f:
             data = json.load(f)
-        areas = [_area_from_dict(d) for d in data.get("areas", [])] or None
-        order_types = [_ot_from_dict(d) for d in data.get("order_types", [])] or None
+        areas = [_area_from_dict(d) for d in data.get("areas", [])]
+        order_types = [_ot_from_dict(d) for d in data.get("order_types", [])]
         return areas, order_types
     except Exception:
         return None, None
@@ -366,23 +369,72 @@ def reset_to_defaults() -> bool:
     return True
 
 
+def clear_all() -> bool:
+    """Remove all stored config so the app starts empty (a blank slate the user
+    then populates by uploading a data file)."""
+    if is_db_configured():
+        client = get_client()
+        if client is None:
+            return False
+        try:
+            client.table("warehouse_areas").delete().eq("scenario", SCENARIO_NAME).execute()
+            client.table("warehouse_order_types").delete().eq("scenario", SCENARIO_NAME).execute()
+            return True
+        except Exception as e:
+            st.error("Database clear failed: " + str(e))
+            return False
+    return _local_save([], [])
+
+
+# ── portable "data file" (JSON) — the config the user downloads/uploads ───────
+
+def config_to_state_bytes(areas: List[StorageArea], order_types: List[OrderType]) -> bytes:
+    """Serialize the full config to a portable JSON data file."""
+    return json.dumps(
+        {
+            "version": 1,
+            "areas": [_area_to_dict(a) for a in areas],
+            "order_types": [_ot_to_dict(o) for o in order_types],
+        },
+        indent=2,
+    ).encode("utf-8")
+
+
+def state_bytes_to_config(raw: bytes):
+    """Parse a portable JSON data file back into (areas, order_types).
+    Raises ValueError with a clear message if the file isn't valid."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception as e:
+        raise ValueError("Not a valid JSON data file: " + str(e))
+    if not isinstance(data, dict) or "areas" not in data or "order_types" not in data:
+        raise ValueError(
+            "This doesn't look like a warehouse data file "
+            "(missing 'areas'/'order_types'). Download a fresh one to see the format."
+        )
+    try:
+        areas = [_area_from_dict(d) for d in data.get("areas", [])]
+        order_types = [_ot_from_dict(d) for d in data.get("order_types", [])]
+    except Exception as e:
+        raise ValueError("Data file is missing a required field: " + str(e))
+    return areas, order_types
+
+
 def load_all():
     """
-    Returns (areas, order_types). Order of precedence: Supabase (if configured
-    and populated) → local JSON file → built-in defaults, resolved per-part.
+    Returns (areas, order_types). Precedence: Supabase (if configured) → local
+    JSON file → **empty**. There is deliberately no automatic fallback to the
+    built-in example data — a fresh or cleared app starts blank, and the user
+    loads data explicitly (upload a data file, or click "Load example data").
     """
-    areas = load_areas()
-    order_types = load_order_types()
-
-    if areas is None or order_types is None:
-        local_areas, local_orders = _local_load()
-        if areas is None:
-            areas = local_areas
-        if order_types is None:
-            order_types = local_orders
+    if is_db_configured():
+        areas = load_areas()
+        order_types = load_order_types()
+    else:
+        areas, order_types = _local_load()
 
     if areas is None:
-        areas = [copy.deepcopy(a) for a in DEFAULT_AREAS]
+        areas = []
     if order_types is None:
-        order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
+        order_types = []
     return areas, order_types
