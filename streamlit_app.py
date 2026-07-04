@@ -77,6 +77,28 @@ hr { margin: .35rem 0 !important; }
 /* sidebar padding */
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .35rem !important; }
 [data-testid="stSidebar"] .block-container { padding-top: 1rem !important; }
+
+/* ── visual polish: consistent grouping, hierarchy, accents ── */
+/* KPI metrics read as a row of aligned cards */
+[data-testid="stMetric"] {
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 8px;
+}
+[data-testid="stMetricValue"] { font-weight: 700 !important; }
+[data-testid="stMetricLabel"] { opacity: .72; }
+/* bordered containers (getting-started, groups) softer + consistent */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 10px !important;
+    border-color: rgba(255,255,255,.08) !important;
+}
+/* active tab gets the brand accent */
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] { color: #8ea2ff !important; }
+[data-testid="stTabs"] [data-baseweb="tab-highlight"] { background-color: #4f6ef7 !important; }
+/* subheaders: subtle accent underline for clearer hierarchy */
+h3 { border-bottom: 1px solid rgba(255,255,255,.06); padding-bottom: .12rem !important; }
+/* expander header hover affordance */
+[data-testid="stExpander"] summary:hover { color: #8ea2ff !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -130,39 +152,28 @@ def fmt_vol(cuft_value: float, decimals: int = 1) -> str:
 
 
 # ── linear dimension helpers ─────────────────────────────────────────────────
-# Rack/box L·D·H are stored internally in FEET (volume = L×D×H in cu ft), but the
-# source data and the people using this app think in centimetres. These convert
-# between the internal feet and the on-screen centimetres for dimension fields.
-FT_TO_CM = 30.48
-CUFT_TO_M3 = 1 / 35.3147
-
-def len_to_cm(feet: float) -> float:
-    """Internal feet → centimetres (for showing a dimension)."""
-    return feet * FT_TO_CM
-
-def cm_to_len(cm: float) -> float:
-    """Centimetres (typed in) → internal feet."""
-    return cm / FT_TO_CM
-
-def fmt_dims_cm(l_ft: float, d_ft: float, h_ft: float, decimals: int = 0) -> str:
-    """Format an L×D×H triple (stored in feet) as centimetres."""
-    return "×".join(f"{len_to_cm(v):.{decimals}f}" for v in (l_ft, d_ft, h_ft))
+# Rack/box L·D·H are stored internally in FEET (volume = L×D×H gives cubic feet).
+# The reference data was in centimetres and converted once to feet (feet =
+# cm / 30.48); everything on screen is shown in feet.
+def fmt_dims_ft(l_ft: float, d_ft: float, h_ft: float, decimals: int = 2) -> str:
+    """Format an L×D×H triple (already stored in feet) as feet."""
+    return "×".join(f"{v:.{decimals}f}" for v in (l_ft, d_ft, h_ft))
 
 
 def _config_signature() -> str:
     """Fingerprint of the current config at the *editable* precision.
 
-    Dimensions are compared as centimetres rounded to 0.1 (what the grid shows),
-    so the tiny cm↔ft round-trip drift never counts as a real edit — only a value
-    a user actually changed does. Used to drive auto-save.
+    Dimensions are compared as feet rounded to 2 dp (what the grid shows), so
+    float noise never counts as a real edit — only a value a user actually
+    changed does. Used to drive auto-save.
     """
     def area_key(a):
         return [
             a.id, a.name, a.zone,
-            round(len_to_cm(a.rack_length_cuft), 1), round(len_to_cm(a.rack_depth_cuft), 1),
-            round(len_to_cm(a.rack_height_cuft), 1), int(a.num_racks),
-            round(len_to_cm(a.box_length_cuft), 1), round(len_to_cm(a.box_depth_cuft), 1),
-            round(len_to_cm(a.box_height_cuft), 1), round(a.efficiency, 4),
+            round(a.rack_length_cuft, 2), round(a.rack_depth_cuft, 2),
+            round(a.rack_height_cuft, 2), int(a.num_racks),
+            round(a.box_length_cuft, 2), round(a.box_depth_cuft, 2),
+            round(a.box_height_cuft, 2), round(a.efficiency, 4),
             round(a.units_per_box, 3), a.max_concurrent_boxes,
         ]
 
@@ -195,13 +206,13 @@ AREA_COLS = [
     ("area_id",              "Area ID",             "Unique key - do not change"),
     ("area_name",            "Area Name",           "Display name - safe to edit"),
     ("zone",                 "Zone",                "Zone code - do not change"),
-    ("rack_length_cuft",     "Rack Length (cm)",    "Length of one rack in centimetres"),
-    ("rack_depth_cuft",      "Rack Depth (cm)",     "Depth of one rack in centimetres"),
-    ("rack_height_cuft",     "Rack Height (cm)",    "Height of one rack in centimetres"),
+    ("rack_length_cuft",     "Rack Length (ft)",    "Length of one rack in feet"),
+    ("rack_depth_cuft",      "Rack Depth (ft)",     "Depth of one rack in feet"),
+    ("rack_height_cuft",     "Rack Height (ft)",    "Height of one rack in feet"),
     ("num_racks",            "Number of Racks",     "How many racks in this area"),
-    ("box_length_cuft",      "Box Length (cm)",     "Length of average box in centimetres"),
-    ("box_depth_cuft",       "Box Width (cm)",      "Width of average box in centimetres"),
-    ("box_height_cuft",      "Box Height (cm)",     "Height of average box in centimetres"),
+    ("box_length_cuft",      "Box Length (ft)",     "Length of average box in feet"),
+    ("box_depth_cuft",       "Box Width (ft)",      "Width of average box in feet"),
+    ("box_height_cuft",      "Box Height (ft)",     "Height of average box in feet"),
     ("efficiency",           "Efficiency (0-1)",    "Usable fraction, e.g. 0.75 = 75% after aisles"),
     ("units_per_box",        "Units per Box",       "Average units that fit in one box in this area"),
     ("max_concurrent_boxes", "Max Concurrent Boxes","Hard cap on boxes at once - leave blank for no cap"),
@@ -286,11 +297,11 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
     for r_idx, a in enumerate(areas, start=3):
         values = [
             a.id, a.name, a.zone,
-            # dimensions exported in centimetres (internal storage is feet)
-            round(len_to_cm(a.rack_length_cuft), 1), round(len_to_cm(a.rack_depth_cuft), 1),
-            round(len_to_cm(a.rack_height_cuft), 1), a.num_racks,
-            round(len_to_cm(a.box_length_cuft), 1), round(len_to_cm(a.box_depth_cuft), 1),
-            round(len_to_cm(a.box_height_cuft), 1),
+            # dimensions in feet (internal storage unit)
+            round(a.rack_length_cuft, 2), round(a.rack_depth_cuft, 2),
+            round(a.rack_height_cuft, 2), a.num_racks,
+            round(a.box_length_cuft, 2), round(a.box_depth_cuft, 2),
+            round(a.box_height_cuft, 2),
             a.efficiency, a.units_per_box,
             a.max_concurrent_boxes if a.max_concurrent_boxes is not None else None,
         ]
@@ -362,14 +373,14 @@ def excel_bytes_to_config(file_bytes):
             id=str(d["area_id"]).strip(),
             name=str(d["area_name"]).strip(),
             zone=str(d["zone"]).strip(),
-            # template columns are in centimetres → convert to internal feet
-            rack_length_cuft=cm_to_len(float(d["rack_length_cuft"])),
-            rack_depth_cuft=cm_to_len(float(d["rack_depth_cuft"])),
-            rack_height_cuft=cm_to_len(float(d["rack_height_cuft"])),
+            # template columns are in feet (the internal unit)
+            rack_length_cuft=float(d["rack_length_cuft"]),
+            rack_depth_cuft=float(d["rack_depth_cuft"]),
+            rack_height_cuft=float(d["rack_height_cuft"]),
             num_racks=int(float(d["num_racks"])),
-            box_length_cuft=cm_to_len(float(d["box_length_cuft"])),
-            box_depth_cuft=cm_to_len(float(d["box_depth_cuft"])),
-            box_height_cuft=cm_to_len(float(d["box_height_cuft"])),
+            box_length_cuft=float(d["box_length_cuft"]),
+            box_depth_cuft=float(d["box_depth_cuft"]),
+            box_height_cuft=float(d["box_height_cuft"]),
             efficiency=float(d["efficiency"]),
             units_per_box=float(d["units_per_box"]),
             max_concurrent_boxes=max_b,
@@ -461,13 +472,13 @@ def analysis_report_excel_bytes(engine, multiplier: float) -> bytes:
     # ── Areas ─────────────────────────────────────────────────────────────────
     ws_a = wb.create_sheet("Areas")
     ws_a.sheet_view.showGridLines = False
-    _sheet_header(ws_a, ["Area", "Zone", "Box L×W×H (cm)", "Capacity (boxes)",
+    _sheet_header(ws_a, ["Area", "Zone", "Box L×W×H (ft)", "Capacity (boxes)",
                          "Load (boxes)", "Utilisation %", "Status",
                          "Capacity (units)", "Load (units)"])
     for ri, a in enumerate(snap.areas, start=2):
         vals = [
             a.area.name, a.area.zone,
-            fmt_dims_cm(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
+            fmt_dims_ft(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
             a.capacity_boxes, int(a.load_boxes), round(a.utilization_pct, 1),
             status_label(a.utilization_pct), a.capacity_units, int(a.load_units),
         ]
@@ -530,7 +541,7 @@ with st.sidebar:
     st.markdown("---")
     st.caption("**Volume unit**")
     if "display_unit" not in st.session_state:
-        st.session_state.display_unit = "cu m"
+        st.session_state.display_unit = "cu ft"
     selected_unit = st.selectbox(
         "Unit", list(UNITS.keys()),
         index=list(UNITS.keys()).index(st.session_state.display_unit),
@@ -697,7 +708,7 @@ if page == "🏭 Material flow":
             bordercolor="#2e3250", borderwidth=1)
 
         fig.update_layout(
-            height=540,
+            height=480,
             margin=dict(l=10, r=10, t=20, b=10),
             paper_bgcolor="#0f1117",
             plot_bgcolor="#0f1117",
@@ -722,8 +733,9 @@ if page == "🏭 Material flow":
     c4.metric("Consumables to Zn 200",   str(int(fl.consumables_to_200))   + " boxes/day")
 
     st.markdown("#### Per order type")
+    st.caption("Expand any order type to see its splits.")
     for ot in engine.order_types:
-        with st.expander("**" + ot.name + "**", expanded=True):
+        with st.expander("**" + ot.name + "**", expanded=False):
             r1, r2, r3 = st.columns(3)
             r1.metric("Daily orders",    ot.daily_volume)
             r2.metric("Avg units/order", ot.avg_units_per_order)
@@ -749,9 +761,8 @@ if page == "🏭 Material flow":
             )
             s3c.metric("Kitting boxes/day", str(round(kit_boxes, 1)))
 
-    st.markdown("---")
-    st.markdown("#### Flow rules reference")
-    st.markdown("""
+    with st.expander("📋 Flow rules reference", expanded=False):
+        st.markdown("""
 | Rule | Logic |
 |---|---|
 | **Split 1 - Storage** | 600% + 400% = 100% — where the order draws its units from |
@@ -760,7 +771,7 @@ if page == "🏭 Material flow":
 | **Split 3 - Kitting** | Packout% + Kitting% = 100% — how 300/200 material routes onward |
 | **Rule 4 - Kitting loop** | Kitting returns to same zone (300 or 200) then flows to 100 normally |
 | **Rule 5 - Final** | All paths converge at 100 Final/Packout before shipping |
-    """)
+        """)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -788,21 +799,21 @@ def _render_area_settings():
     st.subheader("Storage areas")
     st.caption(
         "Every area is one row — edit any cell directly. Rack and box dimensions are in "
-        "**centimetres (cm)**; volume shows in **m³**. Capacity updates live in the preview "
-        "below; changes apply when you hit Save."
+        "**feet (ft)**; volume shows in **ft³**. Capacity updates live in the preview "
+        "below; changes save automatically."
     )
 
     df = pd.DataFrame([{
         "ID":        a.id,
         "Area":      a.name,
         "Zone":      a.zone,
-        "Rack L":    round(len_to_cm(a.rack_length_cuft), 1),
-        "Rack D":    round(len_to_cm(a.rack_depth_cuft), 1),
-        "Rack H":    round(len_to_cm(a.rack_height_cuft), 1),
+        "Rack L":    round(a.rack_length_cuft, 2),
+        "Rack D":    round(a.rack_depth_cuft, 2),
+        "Rack H":    round(a.rack_height_cuft, 2),
         "# Racks":   int(a.num_racks),
-        "Box L":     round(len_to_cm(a.box_length_cuft), 1),
-        "Box W":     round(len_to_cm(a.box_depth_cuft), 1),
-        "Box H":     round(len_to_cm(a.box_height_cuft), 1),
+        "Box L":     round(a.box_length_cuft, 2),
+        "Box W":     round(a.box_depth_cuft, 2),
+        "Box H":     round(a.box_height_cuft, 2),
         "Eff.":      float(a.efficiency),
         "Units/box": float(a.units_per_box),
         "Max boxes": int(a.max_concurrent_boxes) if a.max_concurrent_boxes is not None else 0,
@@ -816,13 +827,13 @@ def _render_area_settings():
         column_config={
             "Area":      st.column_config.TextColumn("Area", width="medium", help="Display name for this storage area."),
             "Zone":      st.column_config.TextColumn("Zone", disabled=True, width="small", help="Flow zone (fixed)."),
-            "Rack L":    st.column_config.NumberColumn("Rack L (cm)", min_value=0.1, step=1.0, format="%.1f", help="Length of one rack, in centimetres."),
-            "Rack D":    st.column_config.NumberColumn("Rack D (cm)", min_value=0.1, step=1.0, format="%.1f", help="Depth of one rack, in centimetres."),
-            "Rack H":    st.column_config.NumberColumn("Rack H (cm)", min_value=0.1, step=1.0, format="%.1f", help="Height of one rack, in centimetres."),
+            "Rack L":    st.column_config.NumberColumn("Rack L (ft)", min_value=0.01, step=0.5, format="%.2f", help="Length of one rack, in feet."),
+            "Rack D":    st.column_config.NumberColumn("Rack D (ft)", min_value=0.01, step=0.5, format="%.2f", help="Depth of one rack, in feet."),
+            "Rack H":    st.column_config.NumberColumn("Rack H (ft)", min_value=0.01, step=0.5, format="%.2f", help="Height of one rack, in feet."),
             "# Racks":   st.column_config.NumberColumn("# Racks",  min_value=1,     step=1,    format="%d", help="How many racks of this size are in the area."),
-            "Box L":     st.column_config.NumberColumn("Box L (cm)", min_value=0.1, step=1.0, format="%.1f", help="Length of the typical box/pallet stored here."),
-            "Box W":     st.column_config.NumberColumn("Box W (cm)", min_value=0.1, step=1.0, format="%.1f", help="Width of the typical box/pallet."),
-            "Box H":     st.column_config.NumberColumn("Box H (cm)", min_value=0.1, step=1.0, format="%.1f", help="Height of the typical box/pallet."),
+            "Box L":     st.column_config.NumberColumn("Box L (ft)", min_value=0.01, step=0.1, format="%.2f", help="Length of the typical box/pallet stored here."),
+            "Box W":     st.column_config.NumberColumn("Box W (ft)", min_value=0.01, step=0.1, format="%.2f", help="Width of the typical box/pallet."),
+            "Box H":     st.column_config.NumberColumn("Box H (ft)", min_value=0.01, step=0.1, format="%.2f", help="Height of the typical box/pallet."),
             "Eff.":      st.column_config.NumberColumn("Eff. (0–1)", min_value=0.1, max_value=1.0, step=0.01, format="%.2f", help="Usable fraction of rack volume after aisles/reach space. 0.75 = 75%."),
             "Units/box": st.column_config.NumberColumn("Units/box", min_value=1.0, step=1.0, format="%.0f", help="Average number of individual units in one box."),
             "Max boxes": st.column_config.NumberColumn("Max boxes", min_value=0, step=10, format="%d",
@@ -831,11 +842,11 @@ def _render_area_settings():
     )
 
     # ── build updates + live capacity preview from the edited grid ────────────
-    # Dimensions come in as centimetres; convert back to internal feet.
+    # Dimensions are already in feet (the internal unit).
     area_updates, prev_rows = {}, []
     for aid, row in edited.iterrows():
-        rl, rd, rh = cm_to_len(row["Rack L"]), cm_to_len(row["Rack D"]), cm_to_len(row["Rack H"])
-        bl, bw, bh = cm_to_len(row["Box L"]),  cm_to_len(row["Box W"]),  cm_to_len(row["Box H"])
+        rl, rd, rh = float(row["Rack L"]), float(row["Rack D"]), float(row["Rack H"])
+        bl, bw, bh = float(row["Box L"]),  float(row["Box W"]),  float(row["Box H"])
         racks = int(row["# Racks"]); eff = float(row["Eff."]); upb = float(row["Units/box"])
         max_raw = int(row["Max boxes"]); max_b = max_raw if max_raw > 0 else None
 
@@ -853,7 +864,7 @@ def _render_area_settings():
         )
         prev_rows.append({
             "Area":                 str(row["Area"]),
-            "Volume (m³)":          round(total_vol * CUFT_TO_M3, 1),
+            "Volume (ft³)":         round(total_vol, 1),
             "Capacity (boxes)":     cap,
             "Capacity (units)":     int(cap * upb),
             "Cap source":           "🔢 box cap" if (max_b and max_b < vol_cap) else "volume",
@@ -1036,10 +1047,10 @@ def _render_excel_io():
                     st.dataframe(
                         pd.DataFrame([{
                             "Area": a.name, "Zone": a.zone,
-                            "Rack L×D×H (cm)": fmt_dims_cm(a.rack_length_cuft, a.rack_depth_cuft, a.rack_height_cuft),
+                            "Rack L×D×H (ft)": fmt_dims_ft(a.rack_length_cuft, a.rack_depth_cuft, a.rack_height_cuft),
                             "Racks": a.num_racks,
-                            "Volume (m³)": round(a.volume_cuft * CUFT_TO_M3, 1),
-                            "Box L×W×H (cm)": fmt_dims_cm(a.box_length_cuft, a.box_depth_cuft, a.box_height_cuft),
+                            "Volume (ft³)": round(a.volume_cuft, 1),
+                            "Box L×W×H (ft)": fmt_dims_ft(a.box_length_cuft, a.box_depth_cuft, a.box_height_cuft),
                             "Efficiency": a.efficiency,
                             "Units/box": a.units_per_box,
                             "Max boxes": a.max_concurrent_boxes or "—",
@@ -1314,8 +1325,8 @@ elif page == "📦 Analysis":
             rows.append({
                 "Area":         a.area.name,
                 "Zone":         a.area.zone,
-                "Box L×W×H (cm)": fmt_dims_cm(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
-                "Box vol (cm³)": round(a.area.avg_box_size_cuft * 28316.8, 0),
+                "Box L×W×H (ft)": fmt_dims_ft(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
+                "Box vol (ft³)": round(a.area.avg_box_size_cuft, 3),
                 "Units/box":    int(a.area.units_per_box),
                 "Load (boxes)": str(int(a.load_boxes)),
                 "Cap (boxes)":  str(a.capacity_boxes) + (" 🔢" if a.area.has_box_cap else ""),
@@ -1353,7 +1364,7 @@ elif page == "📦 Analysis":
                 + str(int(a.load_boxes)) + "/" + str(a.capacity_boxes) + " boxes" + cap_tag + "  |  "
                 + str(int(a.load_units)) + "/" + str(a.capacity_units) + " units  |  "
                 + str(int(a.area.units_per_box)) + " u/box  " + status_label(a.utilization_pct),
-                expanded=True):
+                expanded=False):
                 st.progress(min(a.utilization_pct / 100, 1.0))
                 if a.contributing_orders:
                     rows = []
