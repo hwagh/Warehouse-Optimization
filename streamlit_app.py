@@ -417,6 +417,15 @@ def excel_bytes_to_config(file_bytes):
 
 if "areas" not in st.session_state:
     _loaded_areas, _loaded_orders = db.load_all()
+    # Normalize dimensions to the grid's editing precision (2 dp for feet) so the
+    # numbers shown in Settings and Analysis are always identical — no float drift.
+    for _a in _loaded_areas:
+        _a.rack_length_cuft = round(_a.rack_length_cuft, 2)
+        _a.rack_depth_cuft  = round(_a.rack_depth_cuft, 2)
+        _a.rack_height_cuft = round(_a.rack_height_cuft, 2)
+        _a.box_length_cuft  = round(_a.box_length_cuft, 2)
+        _a.box_depth_cuft   = round(_a.box_depth_cuft, 2)
+        _a.box_height_cuft  = round(_a.box_height_cuft, 2)
     st.session_state.areas       = [copy.deepcopy(a) for a in _loaded_areas]
     st.session_state.order_types = [copy.deepcopy(o) for o in _loaded_orders]
     # remember what's persisted so auto-save only fires on real edits
@@ -533,22 +542,14 @@ with st.sidebar:
         st.caption("🟢 Saving locally — changes persist across refreshes on this server")
     st.markdown("---")
     st.markdown("**Quick status at x1.0**")
-    _snap = get_engine().snapshot(1.0)
-    nb, nw = len(_snap.bottlenecks), len(_snap.warnings)
-    if nb:   st.error(f"⚠️ {nb} area(s) over capacity")
-    elif nw: st.warning(f"△ {nw} area(s) near limit")
-    else:    st.success("✓ All areas OK")
-    st.markdown("---")
-    st.caption("**Volume unit**")
-    if "display_unit" not in st.session_state:
-        st.session_state.display_unit = "cu ft"
-    selected_unit = st.selectbox(
-        "Unit", list(UNITS.keys()),
-        index=list(UNITS.keys()).index(st.session_state.display_unit),
-        label_visibility="collapsed", key="unit_selector")
-    if selected_unit != st.session_state.display_unit:
-        st.session_state.display_unit = selected_unit
-        st.rerun()
+    if not st.session_state.get("areas"):
+        st.info("No data yet — add it in ⚙️ Settings → Import / Export")
+    else:
+        _snap = get_engine().snapshot(1.0)
+        nb, nw = len(_snap.bottlenecks), len(_snap.warnings)
+        if nb:   st.error(f"⚠️ {nb} area(s) over capacity")
+        elif nw: st.warning(f"△ {nw} area(s) near limit")
+        else:    st.success("✓ All areas OK")
     st.markdown("---")
     st.caption("**Zone legend**")
     for zone, name in [("600","Paper"),("400","Consumables"),
@@ -568,6 +569,13 @@ with st.sidebar:
 if page == "🏭 Material flow":
     st.title("🏭 Material flow")
     st.caption("How material moves through the warehouse — from inbound to final shipment.")
+
+    if not st.session_state.get("areas"):
+        st.info(
+            "**No data yet.** Load data in **⚙️ Settings → 💾 Data & Storage** "
+            "(example data) or **Import / Export** (upload a data file) to see the flow."
+        )
+        st.stop()
 
     def make_flow_diagram(engine):
         """
@@ -797,6 +805,12 @@ def _render_unit_converter():
 def _render_area_settings():
     """Editable grid of ALL storage areas — one row each, no vertical scrolling."""
     st.subheader("Storage areas")
+    if not st.session_state.areas:
+        st.info(
+            "No storage areas yet. Load data in **💾 Data & Storage** (example data) "
+            "or **Import / Export** (upload a data file), then edit it here."
+        )
+        return {}
     st.caption(
         "Every area is one row — edit any cell directly. Rack and box dimensions are in "
         "**feet (ft)**; volume shows in **ft³**. Capacity updates live in the preview "
@@ -864,7 +878,7 @@ def _render_area_settings():
         )
         prev_rows.append({
             "Area":                 str(row["Area"]),
-            "Volume (ft³)":         round(total_vol, 1),
+            "Area volume (ft³)":    round(total_vol, 1),
             "Capacity (boxes)":     cap,
             "Capacity (units)":     int(cap * upb),
             "Cap source":           "🔢 box cap" if (max_b and max_b < vol_cap) else "volume",
@@ -880,6 +894,12 @@ def _render_area_settings():
 def _render_order_settings():
     """Editable grid of ALL order types — one row each, with live split checks."""
     st.subheader("Order types")
+    if not st.session_state.order_types:
+        st.info(
+            "No order types yet. Load data in **💾 Data & Storage** (example data) "
+            "or **Import / Export** (upload a data file), then edit it here."
+        )
+        return {}, True
     st.caption(
         "Every order type is one row — edit any cell directly. The three split pairs must "
         "each total 100% (600+400, 300+200, packout+kitting). Changes apply when you hit Save."
@@ -1004,9 +1024,52 @@ def _autosave_if_changed(valid: bool):
 
 
 def _render_excel_io():
-    st.subheader("💾 Save / Load configuration (Excel)")
+    # ── Portable data file (JSON) — the durable "database file" ──────────────
+    st.subheader("📦 Data file (recommended)")
     st.caption(
-        "Download the template, fill it in Excel, then upload it here to apply your values."
+        "Your whole configuration as one portable file. **Download** it to keep a "
+        "backup, then **upload** it any time (or on a fresh app) to restore everything "
+        "instantly — the most reliable way to move data between sessions or servers."
+    )
+    jc1, jc2 = st.columns(2)
+    with jc1:
+        st.markdown("**⬇️ Download data file**")
+        st.caption("Saves all areas and order types to a single .json file.")
+        st.download_button(
+            "⬇️ Download data file (.json)",
+            data=db.config_to_state_bytes(st.session_state.areas, st.session_state.order_types),
+            file_name="warehouse_data_" + datetime.now().strftime("%Y%m%d_%H%M") + ".json",
+            mime="application/json",
+            width="stretch",
+            disabled=not st.session_state.areas and not st.session_state.order_types,
+        )
+    with jc2:
+        st.markdown("**⬆️ Upload data file**")
+        st.caption("Replaces everything with the contents of the file, and saves it.")
+        up_json = st.file_uploader(
+            "Choose data file", type=["json"], key="upload_data_file",
+            label_visibility="collapsed")
+        if up_json is not None:
+            try:
+                new_areas, new_orders = db.state_bytes_to_config(up_json.getvalue())
+                st.success(
+                    "✅ Read " + str(len(new_areas)) + " areas and "
+                    + str(len(new_orders)) + " order types.")
+                if st.button("✅ Apply this data file", type="primary",
+                             width="stretch", key="apply_data_file"):
+                    st.session_state.areas = new_areas
+                    st.session_state.order_types = new_orders
+                    st.session_state._saved_sig = _config_signature()
+                    db.save_all(new_areas, new_orders)
+                    st.success("Data file applied and saved.")
+                    st.rerun()
+            except ValueError as e:
+                st.error("❌ " + str(e))
+
+    st.markdown("---")
+    st.subheader("📄 Excel template (alternative)")
+    st.caption(
+        "Prefer editing in Excel? Download the template, fill it in, then upload it here."
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -1114,6 +1177,38 @@ def _render_db_controls():
             "restarts, you can optionally connect a free Supabase database below."
         )
 
+    st.markdown("**Start fresh**")
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        if st.button("📥 Load calibrated example data", width="stretch",
+                     help="Fill the app with the built-in Sojo example config (5 areas, 10 order types)."):
+            st.session_state.areas       = [copy.deepcopy(a) for a in DEFAULT_AREAS]
+            st.session_state.order_types = [copy.deepcopy(o) for o in DEFAULT_ORDER_TYPES]
+            st.session_state._saved_sig  = _config_signature()
+            db.save_all(st.session_state.areas, st.session_state.order_types)
+            st.success("Loaded and saved the example data.")
+            st.rerun()
+    with sc2:
+        if st.button("🗑️ Clear all data (start empty)", width="stretch",
+                     help="Remove every area and order type. The app becomes a blank slate you populate by uploading a data file."):
+            st.session_state._confirm_clear = True
+
+    if st.session_state.get("_confirm_clear"):
+        st.warning("**Remove ALL data?** Download a data file first if you want a backup.")
+        xc1, xc2 = st.columns(2)
+        if xc1.button("Yes, clear everything", type="primary", width="stretch", key="confirm_clear_yes"):
+            db.clear_all()
+            st.session_state.areas = []
+            st.session_state.order_types = []
+            st.session_state._saved_sig = _config_signature()
+            st.session_state.pop("_confirm_clear", None)
+            st.success("All data cleared. Upload a data file in Import / Export to begin.")
+            st.rerun()
+        if xc2.button("Cancel", width="stretch", key="confirm_clear_no"):
+            st.session_state.pop("_confirm_clear", None)
+            st.rerun()
+
+    st.markdown("---")
     dbc1, dbc2 = st.columns(2)
     with dbc1:
         if st.button("🔄 Reload saved values", width="stretch",
@@ -1183,12 +1278,11 @@ if page == "⚙️ Settings":
 
     save_status = st.empty()
 
-    tab_areas, tab_orders, tab_io, tab_db, tab_conv = st.tabs([
+    tab_areas, tab_orders, tab_io, tab_db = st.tabs([
         "🗺️ Storage Areas",
         "📦 Order Types",
         "💾 Import / Export",
         "💾 Data & Storage",
-        "🔁 Unit Converter",
     ])
 
     with tab_areas:
@@ -1202,9 +1296,6 @@ if page == "⚙️ Settings":
 
     with tab_db:
         _render_db_controls()
-
-    with tab_conv:
-        _render_unit_converter()
 
     # ── auto-save: apply edits from both editors every run, persist when valid ──
     # Both editors render on every run, so both update dicts are always current.
@@ -1241,6 +1332,14 @@ elif page == "📦 Analysis":
             if st.button("Got it — hide this", key="dismiss_intro"):
                 st.session_state._intro_dismissed = True
                 st.rerun()
+
+    if not st.session_state.get("areas"):
+        st.info(
+            "**No data yet.** Go to **⚙️ Settings → 💾 Data & Storage** and either "
+            "load the calibrated example data, or open **Import / Export** and upload "
+            "your data file. The analysis will appear here once data is loaded."
+        )
+        st.stop()
 
     multiplier = st.slider(
         "Volume multiplier", min_value=1.0, max_value=10.0,
@@ -1325,6 +1424,7 @@ elif page == "📦 Analysis":
             rows.append({
                 "Area":         a.area.name,
                 "Zone":         a.area.zone,
+                "Area volume (ft³)": round(a.area.volume_cuft, 1),
                 "Box L×W×H (ft)": fmt_dims_ft(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
                 "Box vol (ft³)": round(a.area.avg_box_size_cuft, 3),
                 "Units/box":    int(a.area.units_per_box),
