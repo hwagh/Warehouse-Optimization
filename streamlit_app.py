@@ -1035,14 +1035,21 @@ def _render_excel_io():
     with jc1:
         st.markdown("**⬇️ Download data file**")
         st.caption("Saves all areas and order types to a single .json file.")
-        st.download_button(
-            "⬇️ Download data file (.json)",
-            data=db.config_to_state_bytes(st.session_state.areas, st.session_state.order_types),
-            file_name="warehouse_data_" + datetime.now().strftime("%Y%m%d_%H%M") + ".json",
-            mime="application/json",
-            width="stretch",
-            disabled=not st.session_state.areas and not st.session_state.order_types,
-        )
+        if not hasattr(db, "config_to_state_bytes"):
+            st.warning(
+                "The running copy of database.py is out of date and is missing "
+                "config_to_state_bytes. Re-deploy the latest database.py "
+                "(Manage app ▸ Reboot / clear cache) to enable this download."
+            )
+        else:
+            st.download_button(
+                "⬇️ Download data file (.json)",
+                data=db.config_to_state_bytes(st.session_state.areas, st.session_state.order_types),
+                file_name="warehouse_data_" + datetime.now().strftime("%Y%m%d_%H%M") + ".json",
+                mime="application/json",
+                width="stretch",
+                disabled=not st.session_state.areas and not st.session_state.order_types,
+            )
     with jc2:
         st.markdown("**⬆️ Upload data file**")
         st.caption("Replaces everything with the contents of the file, and saves it.")
