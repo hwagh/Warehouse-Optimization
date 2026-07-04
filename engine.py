@@ -79,8 +79,10 @@ class WarehouseSnapshot:
 
 class WarehouseEngine:
     def __init__(self, areas=None, order_types=None):
-        self.areas       = areas       or list(DEFAULT_AREAS)
-        self.order_types = order_types or list(DEFAULT_ORDER_TYPES)
+        # Note: an explicit empty list means "no data" and must be respected —
+        # only fall back to defaults when the caller passed nothing (None).
+        self.areas       = areas       if areas       is not None else list(DEFAULT_AREAS)
+        self.order_types = order_types if order_types is not None else list(DEFAULT_ORDER_TYPES)
 
     def _areas_for_zone(self, zone: str) -> List[StorageArea]:
         return [a for a in self.areas if a.zone == zone]
