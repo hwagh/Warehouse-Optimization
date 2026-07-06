@@ -13,8 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
     StorageArea, OrderType,
-    StorageSplit, CustomerSplit, KittingSplit,
-    ZONE_NAMES, ZONE_FLOW_ORDER,
+    AREA_NAMES, AREA_ORDER,
     DEFAULT_AREAS, DEFAULT_ORDER_TYPES,
 )
 from engine import WarehouseEngine
@@ -169,7 +168,7 @@ def _config_signature() -> str:
     """
     def area_key(a):
         return [
-            a.id, a.name, a.zone,
+            a.id, a.name,
             round(a.rack_length_cuft, 2), round(a.rack_depth_cuft, 2),
             round(a.rack_height_cuft, 2), int(a.num_racks),
             round(a.box_length_cuft, 2), round(a.box_depth_cuft, 2),
@@ -180,9 +179,7 @@ def _config_signature() -> str:
     def ot_key(o):
         return [
             o.id, o.name, int(o.daily_volume), int(o.avg_units_per_order),
-            round(o.storage_split.paper_pct, 3), round(o.storage_split.consumable_pct, 3),
-            round(o.customer_split.cust1_pct, 3), round(o.customer_split.cust2_pct, 3),
-            round(o.kitting_split.packout_pct, 3), round(o.kitting_split.kitting_pct, 3),
+            [round(o.draw_for(aid), 3) for aid in AREA_ORDER],
         ]
 
     return json.dumps({
@@ -223,12 +220,11 @@ ORDER_COLS = [
     ("order_name",          "Order Name",          "Display name - safe to edit"),
     ("daily_volume",        "Daily Volume",        "Number of orders per day"),
     ("avg_units_per_order", "Avg Units / Order",   "Average units per order"),
-    ("paper_pct",           "Paper % (600)",       "Must total 100 with Consumable %"),
-    ("consumable_pct",      "Consumable % (400)",  "Must total 100 with Paper %"),
-    ("cust1_pct",           "Cust 1 % (Zone 300)", "Must total 100 with Cust 2 %"),
-    ("cust2_pct",           "Cust 2 % (Zone 200)", "Must total 100 with Cust 1 %"),
-    ("packout_pct",         "Direct to Packout %", "Must total 100 with Kitting %"),
-    ("kitting_pct",         "Kitting %",           "Must total 100 with Direct to Packout %"),
+    ("draw_dock",           "Dock boxes/order",      "Boxes one order places in Dock (0 = none)"),
+    ("draw_back",           "Back wall boxes/order", "Boxes one order places in Back wall (0 = none)"),
+    ("draw_bulk",           "Bulk boxes/order",      "Boxes one order places in Bulk (0 = none)"),
+    ("draw_mez",            "Mez boxes/order",       "Boxes one order places in Mez (0 = none)"),
+    ("draw_pack",           "Packouts boxes/order",  "Boxes one order places in Packouts (0 = none)"),
 ]
 
 HEADER_FILL  = PatternFill("solid", start_color="1F2937", end_color="1F2937")
@@ -296,7 +292,7 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
 
     for r_idx, a in enumerate(areas, start=3):
         values = [
-            a.id, a.name, a.zone,
+            a.id, a.name,
             # dimensions in feet (internal storage unit)
             round(a.rack_length_cuft, 2), round(a.rack_depth_cuft, 2),
             round(a.rack_height_cuft, 2), a.num_racks,
@@ -332,9 +328,8 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
     for r_idx, ot in enumerate(order_types, start=3):
         values = [
             ot.id, ot.name, ot.daily_volume, ot.avg_units_per_order,
-            ot.storage_split.paper_pct, ot.storage_split.consumable_pct,
-            ot.customer_split.cust1_pct, ot.customer_split.cust2_pct,
-            ot.kitting_split.packout_pct, ot.kitting_split.kitting_pct,
+            ot.draw_for("dock"), ot.draw_for("back"), ot.draw_for("bulk"),
+            ot.draw_for("mez"), ot.draw_for("pack"),
         ]
         for col_idx, val in enumerate(values, start=1):
             cell = ws_o.cell(row=r_idx, column=col_idx, value=val)
@@ -396,15 +391,13 @@ def excel_bytes_to_config(file_bytes):
             name=str(d["order_name"]).strip(),
             daily_volume=int(float(d["daily_volume"])),
             avg_units_per_order=int(float(d["avg_units_per_order"])),
-            storage_split=StorageSplit(
-                paper_pct=float(d["paper_pct"]),
-                consumable_pct=float(d["consumable_pct"])),
-            customer_split=CustomerSplit(
-                cust1_pct=float(d["cust1_pct"]),
-                cust2_pct=float(d["cust2_pct"])),
-            kitting_split=KittingSplit(
-                packout_pct=float(d["packout_pct"]),
-                kitting_pct=float(d["kitting_pct"])),
+            draw={
+                "dock": float(d.get("draw_dock", 0) or 0),
+                "back": float(d.get("draw_back", 0) or 0),
+                "bulk": float(d.get("draw_bulk", 0) or 0),
+                "mez":  float(d.get("draw_mez", 0) or 0),
+                "pack": float(d.get("draw_pack", 0) or 0),
+            },
         ))
 
     if not areas:
@@ -486,7 +479,7 @@ def analysis_report_excel_bytes(engine, multiplier: float) -> bytes:
                          "Capacity (units)", "Load (units)"])
     for ri, a in enumerate(snap.areas, start=2):
         vals = [
-            a.area.name, a.area.zone,
+            a.area.name,
             fmt_dims_ft(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
             a.capacity_boxes, int(a.load_boxes), round(a.utilization_pct, 1),
             status_label(a.utilization_pct), a.capacity_units, int(a.load_units),
@@ -499,9 +492,9 @@ def analysis_report_excel_bytes(engine, multiplier: float) -> bytes:
     zdf = engine.zone_summary(multiplier)
     ws_z = wb.create_sheet("Zones")
     ws_z.sheet_view.showGridLines = False
-    zcols = ["zone_code", "zone_name", "areas", "capacity_boxes", "load_boxes",
+    zcols = ["area", "capacity_boxes", "load_boxes",
              "capacity_units", "load_units", "utilization_pct"]
-    zlabels = ["Zone", "Name", "Areas", "Capacity (boxes)", "Load (boxes)",
+    zlabels = ["Area", "Capacity (boxes)", "Load (boxes)",
                "Capacity (units)", "Load (units)", "Utilisation %"]
     _sheet_header(ws_z, zlabels)
     for ri, (_, row) in enumerate(zdf.iterrows(), start=2):
@@ -577,209 +570,72 @@ if page == "🏭 Material flow":
         )
         st.stop()
 
-    def make_flow_diagram(engine):
-        """
-        Improved flow diagram using scatter traces for proper connected arrows.
-        """
-        snap = engine.snapshot(1.0)
-        fl   = snap.flow
-        fig  = go.Figure()
-
-        # ── coordinate system: 0-100 x, 0-100 y ─────────────────────────
-        N = {
-            "orders":  (50, 90),
-            "z600":    (22, 70),
-            "z400":    (78, 70),
-            "smb":     (22, 50),
-            "z300":    (48, 50),
-            "z200":    (78, 50),
-            "kit300":  (48, 30),
-            "kit200":  (78, 30),
-            "final":   (50, 10),
-        }
-
-        def add_arrow(x0, y0, x1, y1, color, dash="solid", width=2):
-            """Draw a line + arrowhead using scatter + annotation."""
-            fig.add_trace(go.Scatter(
-                x=[x0, x1], y=[y0, y1], mode="lines",
-                line=dict(color=color, width=width, dash=dash),
-                hoverinfo="skip", showlegend=False))
-            import math
-            dx, dy = x1-x0, y1-y0
-            length = math.sqrt(dx*dx + dy*dy) or 1
-            angle = math.degrees(math.atan2(dy, dx))
-            fig.add_trace(go.Scatter(
-                x=[x1], y=[y1], mode="markers",
-                marker=dict(
-                    symbol="arrow", size=14, color=color,
-                    angle=angle - 90,
-                    line=dict(width=0)),
-                hoverinfo="skip", showlegend=False))
-
-        def add_node(x, y, title, subtitle, tc, bg, bc, w=18, h=7):
-            """Draw a rounded rectangle node."""
-            fig.add_shape(type="rect",
-                x0=x-w/2+0.4, y0=y-h/2-0.4,
-                x1=x+w/2+0.4, y1=y+h/2-0.4,
-                xref="x", yref="y",
-                fillcolor="rgba(0,0,0,0.4)", line=dict(width=0))
-            fig.add_shape(type="rect",
-                x0=x-w/2, y0=y-h/2,
-                x1=x+w/2, y1=y+h/2,
-                xref="x", yref="y",
-                fillcolor=bg,
-                line=dict(color=bc, width=2))
-            fig.add_annotation(
-                x=x, y=y + (1.2 if subtitle else 0),
-                text="<b>" + title + "</b>",
-                showarrow=False, font=dict(size=13, color=tc),
-                xref="x", yref="y", align="center")
-            if subtitle:
-                fig.add_annotation(
-                    x=x, y=y - 1.8,
-                    text="<span style='font-size:10px;color:#9ca3af'>" + subtitle + "</span>",
-                    showarrow=False, font=dict(size=10, color="#9ca3af"),
-                    xref="x", yref="y", align="center")
-
-        def edge_label(x, y, text, color, size=10):
-            fig.add_annotation(
-                x=x, y=y, text="<i>" + text + "</i>",
-                showarrow=False, font=dict(size=size, color=color),
-                xref="x", yref="y", align="center",
-                bgcolor="rgba(15,17,23,0.75)", borderpad=2)
-
-        def rule_badge(x, y, badge, detail, color):
-            fig.add_annotation(
-                x=x, y=y,
-                text="<b>" + badge + "</b>  <span style='color:#6b7280;font-size:10px'>" + detail + "</span>",
-                showarrow=False, font=dict(size=11, color=color),
-                xref="x", yref="y", align="left",
-                bgcolor="rgba(15,17,23,0.8)",
-                bordercolor=color, borderwidth=1, borderpad=4)
-
-        # ── nodes ────────────────────────────────────────────────────────
-        add_node(*N["orders"], "Inbound Orders",     "",                    "#c7d2fe", "#1e2235", "#4f6ef7", w=20, h=6)
-        add_node(*N["z600"],   "600 – Paper",        "Raw paper storage",   "#a0a8f0", "#1a2040", "#4f6ef7")
-        add_node(*N["z400"],   "400 – Consumables",  "Raw consumables",     "#67d8f0", "#0a2025", "#06b6d4")
-        add_node(*N["smb"],    "Smart Bulk",         "Paper staging",       "#c4b5fd", "#1e1540", "#7c5cfc")
-        add_node(*N["z300"],   "300 – Cust. Spec 1", "Customer area 1",     "#6ee7b7", "#0a2018", "#10b981")
-        add_node(*N["z200"],   "200 – Cust. Spec 2", "Customer area 2",     "#fcd34d", "#2a1800", "#f59e0b")
-        add_node(*N["kit300"], "Kitting",            "Custom kit assembly", "#d1d5db", "#111827", "#6b7280", w=16, h=6)
-        add_node(*N["kit200"], "Kitting",            "Custom kit assembly", "#d1d5db", "#111827", "#6b7280", w=16, h=6)
-        add_node(*N["final"],  "100 – Final/Packout","Ready to ship",       "#fca5a5", "#2a0a0a", "#ef4444", w=24, h=6)
-
-        # ── arrows ───────────────────────────────────────────────────────
-        add_arrow(50, 87, 22, 73.5, "#4f6ef7")
-        add_arrow(50, 87, 78, 73.5, "#06b6d4")
-        add_arrow(22, 66.5, 22, 53.5, "#7c5cfc")
-        add_arrow(11, 50, 11, 10, "#7c5cfc", dash="dot", width=1.5)
-        add_arrow(11, 10, 38, 10, "#7c5cfc", dash="dot", width=1.5)
-        add_arrow(65, 70, 56, 53.5, "#10b981")
-        add_arrow(78, 66.5, 78, 53.5, "#f59e0b")
-        add_arrow(48, 46.5, 48, 33.5, "#10b981")
-        add_arrow(78, 46.5, 78, 33.5, "#f59e0b")
-        add_arrow(40, 30, 40, 50, "#6b7280", dash="dash", width=1.5)
-        add_arrow(86, 30, 86, 50, "#6b7280", dash="dash", width=1.5)
-        add_arrow(44, 46.5, 44, 13.5, "#10b981")
-        add_arrow(78, 46.5, 56, 13.5, "#f59e0b")
-
-        # ── edge labels ──────────────────────────────────────────────────
-        edge_label(34, 82,   "Paper % (Split 1)",        "#4f6ef7")
-        edge_label(66, 82,   "Consumable % (Split 1)",   "#06b6d4")
-        edge_label(22, 60,   "staged",                   "#7c5cfc")
-        edge_label(8,  30,   "direct to 100",           "#7c5cfc")
-        edge_label(59, 63,   "Cust 1 % (Split 2)",      "#10b981")
-        edge_label(83, 60,   "Cust 2 % (Split 2)",       "#f59e0b")
-        edge_label(52, 40,   "Kitting % (Split 3)",     "#10b981")
-        edge_label(82, 40,   "Kitting % (Split 3)",     "#f59e0b")
-        edge_label(37, 40,   "back to 300",              "#6b7280")
-        edge_label(90, 40,   "back to 200",              "#6b7280")
-
-        # ── rule badges ──────────────────────────────────────────────────
-        rule_badge(2, 82, "SPLIT 1", "600 vs 400",           "#818cf8")
-        rule_badge(2, 60, "RULE 2",  "Paper→SmartBulk→100",  "#a78bfa")
-        rule_badge(2, 52, "SPLIT 2", "300 vs 200",           "#34d399")
-        rule_badge(2, 32, "SPLIT 3", "Kitting loop",         "#9ca3af")
-        rule_badge(2, 10, "RULE 5",  "All paths→100",        "#f87171")
-
-        # ── live volume callouts ─────────────────────────────────────────
-        fig.add_annotation(
-            x=50, y=96,
-            text="<b>Today at x1.0:</b>  "
-                 + "Paper->300: " + str(int(fl.paper_to_300)) + "  |  "
-                 + "Paper->200: " + str(int(fl.paper_to_200)) + "  |  "
-                 + "Cons->300: " + str(int(fl.consumables_to_300)) + "  |  "
-                 + "Cons->200: " + str(int(fl.consumables_to_200)) + " boxes/day",
-            showarrow=False, font=dict(size=11, color="#94a3b8"),
-            xref="x", yref="y", align="center",
-            bgcolor="rgba(30,34,53,0.9)", borderpad=6,
-            bordercolor="#2e3250", borderwidth=1)
-
-        fig.update_layout(
-            height=480,
-            margin=dict(l=10, r=10, t=20, b=10),
-            paper_bgcolor="#0f1117",
-            plot_bgcolor="#0f1117",
-            xaxis=dict(visible=False, range=[0, 100], fixedrange=True),
-            yaxis=dict(visible=False, range=[0, 100], fixedrange=True),
-            showlegend=False,
-        )
-        return fig
-
-    st.plotly_chart(make_flow_diagram(get_engine()), width="stretch")
-    st.markdown("---")
-
     engine = get_engine()
-    snap   = engine.snapshot(1.0)
-    fl     = snap.flow
 
-    st.subheader("Live flow volumes at x1.0")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Paper to Zone 300",       str(int(fl.paper_to_300))         + " boxes/day")
-    c2.metric("Paper to Zone 200",       str(int(fl.paper_to_200))         + " boxes/day")
-    c3.metric("Consumables to Zn 300",   str(int(fl.consumables_to_300))   + " boxes/day")
-    c4.metric("Consumables to Zn 200",   str(int(fl.consumables_to_200))   + " boxes/day")
+    st.markdown(
+        "Each order type draws storage from **some areas, not all**. "
+        "The matrix shows how many **boxes one order** of each type places into "
+        "each area at current volumes (0 / · means it does not touch that area). "
+        "Column totals are today's box load per area."
+    )
 
+    areas = engine.areas
+    orders = engine.order_types
+
+    header = "| Order type | " + " | ".join(a.name for a in areas) + " | Row/day |"
+    sep    = "|---|" + "|".join(["---:"] * len(areas)) + "|---:|"
+    rows_md = [header, sep]
+    col_tot = {a.id: 0.0 for a in areas}
+    for ot in orders:
+        cells, row_tot = [], 0.0
+        for a in areas:
+            boxes = ot.boxes_in_area(a, 1.0)
+            col_tot[a.id] += boxes
+            row_tot += boxes
+            cells.append(str(int(round(boxes))) if boxes > 0 else "·")
+        rows_md.append("| **" + ot.id + "** | " + " | ".join(cells) + " | " + str(int(round(row_tot))) + " |")
+    tot_cells = " | ".join("**" + str(int(round(col_tot[a.id]))) + "**" for a in areas)
+    grand = int(round(sum(col_tot.values())))
+    rows_md.append("| **Area total/day** | " + tot_cells + " | **" + str(grand) + "** |")
+    st.markdown("\n".join(rows_md))
+
+    st.markdown("---")
+    st.subheader("Load vs capacity by area (today, x1.0)")
+    snap = engine.snapshot(1.0)
+    cols = st.columns(len(snap.areas))
+    for col, a in zip(cols, snap.areas):
+        col.metric(
+            a.area.name,
+            str(int(a.load_boxes)) + " / " + str(a.capacity_boxes),
+            str(round(a.utilization_pct)) + "% · " + status_label(a.utilization_pct),
+            delta_color="off",
+        )
+
+    st.markdown("---")
     st.markdown("#### Per order type")
-    st.caption("Expand any order type to see its splits.")
-    for ot in engine.order_types:
-        with st.expander("**" + ot.name + "**", expanded=False):
+    st.caption("Expand an order type to see which areas it draws on.")
+    for ot in orders:
+        touched = ot.affected_areas
+        with st.expander("**" + ot.name + "** — touches " + str(len(touched)) + " of " + str(len(areas)) + " areas", expanded=False):
             r1, r2, r3 = st.columns(3)
-            r1.metric("Daily orders",    ot.daily_volume)
+            r1.metric("Daily orders", ot.daily_volume)
             r2.metric("Avg units/order", ot.avg_units_per_order)
-            r3.metric("Total units/day", str(int(ot.total_units())))
+            r3.metric("Areas affected", len(touched))
+            dcols = st.columns(len(areas))
+            for dcol, a in zip(dcols, areas):
+                d = ot.draw_for(a.id)
+                dcol.metric(a.name, (("%g" % d) if d > 0 else "—"),
+                            "boxes/order" if d > 0 else "not used", delta_color="off")
 
-            st.caption("Split 1 - Storage")
-            s1a, s1b = st.columns(2)
-            s1a.metric("600 Paper %",        str(int(ot.storage_split.paper_pct))      + "%")
-            s1b.metric("400 Consumables %",  str(int(ot.storage_split.consumable_pct)) + "%")
-
-            st.caption("Split 2 - Customer (of the Consumables portion)")
-            s2a, s2b = st.columns(2)
-            s2a.metric("to Zone 300 %", str(int(ot.customer_split.cust1_pct)) + "%")
-            s2b.metric("to Zone 200 %", str(int(ot.customer_split.cust2_pct)) + "%")
-
-            st.caption("Split 3 - Kitting (of 300/200 material)")
-            s3a, s3b, s3c = st.columns(3)
-            s3a.metric("Direct to packout %", str(int(ot.kitting_split.packout_pct)) + "%")
-            s3b.metric("to Kitting %",        str(int(ot.kitting_split.kitting_pct)) + "%")
-            kit_boxes = sum(
-                ot.boxes_in_area(a, 1.0) * (ot.kitting_split.kitting_pct / 100)
-                for a in engine.areas if a.zone in ("300", "200")
-            )
-            s3c.metric("Kitting boxes/day", str(round(kit_boxes, 1)))
-
-    with st.expander("📋 Flow rules reference", expanded=False):
-        st.markdown("""
-| Rule | Logic |
-|---|---|
-| **Split 1 - Storage** | 600% + 400% = 100% — where the order draws its units from |
-| **Rule 2 - Paper path** | 600 to Smart Bulk (same volume staged) then direct to 100 Final — bypasses 300/200 |
-| **Split 2 - Customer** | 300% + 200% = 100% — how the 400 consumable portion divides between customers |
-| **Split 3 - Kitting** | Packout% + Kitting% = 100% — how 300/200 material routes onward |
-| **Rule 4 - Kitting loop** | Kitting returns to same zone (300 or 200) then flows to 100 normally |
-| **Rule 5 - Final** | All paths converge at 100 Final/Packout before shipping |
-        """)
+    with st.expander("How the model works", expanded=False):
+        st.markdown(
+            "- **Draw** = boxes one order of a type places into an area. "
+            "Set 0 in Settings if that order type does not use the area.\n"
+            "- **Area load/day** = sum over order types of daily_volume × draw.\n"
+            "- **Utilisation** = load ÷ capacity. Scale all orders on the Analysis "
+            "page to see which area redlines first.\n"
+            "- **SO** is the primary type and by default draws on all five areas."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -820,7 +676,6 @@ def _render_area_settings():
     df = pd.DataFrame([{
         "ID":        a.id,
         "Area":      a.name,
-        "Zone":      a.zone,
         "Rack L":    round(a.rack_length_cuft, 2),
         "Rack D":    round(a.rack_depth_cuft, 2),
         "Rack H":    round(a.rack_height_cuft, 2),
@@ -901,8 +756,9 @@ def _render_order_settings():
         )
         return {}, True
     st.caption(
-        "Every order type is one row — edit any cell directly. The three split pairs must "
-        "each total 100% (600+400, 300+200, packout+kitting). Changes apply when you hit Save."
+        "Every order type is one row — edit any cell directly. Each area cell is how many "
+        "boxes one order of that type puts into that area; set 0 where the type doesn't use "
+        "an area. Changes apply when you hit Save."
     )
 
     df = pd.DataFrame([{
@@ -910,16 +766,15 @@ def _render_order_settings():
         "Order":     ot.name,
         "Daily vol": int(ot.daily_volume),
         "Avg units": int(ot.avg_units_per_order),
-        "600 %":     float(ot.storage_split.paper_pct),
-        "400 %":     float(ot.storage_split.consumable_pct),
-        "300 %":     float(ot.customer_split.cust1_pct),
-        "200 %":     float(ot.customer_split.cust2_pct),
-        "Packout %": float(ot.kitting_split.packout_pct),
-        "Kitting %": float(ot.kitting_split.kitting_pct),
+        "Dock boxes/order":      float(ot.draw_for("dock")),
+        "Back wall boxes/order": float(ot.draw_for("back")),
+        "Bulk boxes/order":      float(ot.draw_for("bulk")),
+        "Mez boxes/order":       float(ot.draw_for("mez")),
+        "Packouts boxes/order":  float(ot.draw_for("pack")),
     } for ot in st.session_state.order_types]).set_index("ID")
 
-    def pct(label, help=None):
-        return st.column_config.NumberColumn(label, min_value=0.0, max_value=100.0, step=1.0, format="%.0f", help=help)
+    def draw_col(label, help=None):
+        return st.column_config.NumberColumn(label, min_value=0.0, step=0.1, format="%.1f", help=help)
 
     row_h  = 29
     grid_h = int((len(df) + 1) * row_h + 3)
@@ -930,48 +785,51 @@ def _render_order_settings():
             "Order":     st.column_config.TextColumn("Order", width="medium", help="Order type name/code."),
             "Daily vol": st.column_config.NumberColumn("Daily vol", min_value=1, step=1, format="%d", help="Number of orders of this type per day."),
             "Avg units": st.column_config.NumberColumn("Avg units", min_value=1, step=1, format="%d", help="Average units per order."),
-            "600 %":     pct("600 Paper %",  "Share of units drawn from Paper (600). 600% + 400% must total 100%."),
-            "400 %":     pct("400 Cons %",   "Share drawn from Consumables (400). 600% + 400% must total 100%."),
-            "300 %":     pct("300 Cust1 %",  "Of the consumables, share to Customer zone 300. 300% + 200% must total 100%."),
-            "200 %":     pct("200 Cust2 %",  "Of the consumables, share to Customer zone 200. 300% + 200% must total 100%."),
-            "Packout %": pct("Packout %",    "Share going straight to packout. Packout% + Kitting% must total 100%."),
-            "Kitting %": pct("Kitting %",    "Share routed through kitting first. Packout% + Kitting% must total 100%."),
+            "Dock boxes/order":      draw_col("Dock",      "Boxes one order places in Dock (0 = not used)."),
+            "Back wall boxes/order": draw_col("Back wall", "Boxes one order places in Back wall (0 = not used)."),
+            "Bulk boxes/order":      draw_col("Bulk",      "Boxes one order places in Bulk (0 = not used)."),
+            "Mez boxes/order":       draw_col("Mez",       "Boxes one order places in Mez (0 = not used)."),
+            "Packouts boxes/order":  draw_col("Packouts",  "Boxes one order places in Packouts (0 = not used)."),
         },
     )
 
-    # ── build updates + live split validation from the edited grid ────────────
+    # ── build updates + area-coverage summary from the edited grid ────────────
     order_updates, check_rows, all_ok = {}, [], True
+    area_cols = ["Dock boxes/order", "Back wall boxes/order", "Bulk boxes/order",
+                 "Mez boxes/order", "Packouts boxes/order"]
     for oid, row in edited.iterrows():
-        s1 = float(row["600 %"]) + float(row["400 %"])
-        s2 = float(row["300 %"]) + float(row["200 %"])
-        s3 = float(row["Packout %"]) + float(row["Kitting %"])
-        ok = all(abs(s - 100) <= 0.5 for s in (s1, s2, s3))
+        draws = [float(row.get(c, 0) or 0) for c in area_cols]
+        touched = sum(1 for d in draws if d > 0)
+        ok = touched > 0  # only rule: a type must draw on at least one area
         all_ok = all_ok and ok
         check_rows.append({
-            "Order":           str(row["Order"]),
-            "Storage 600+400": f"{s1:.0f}%",
-            "Cust 300+200":    f"{s2:.0f}%",
-            "Kit pack+kitting":f"{s3:.0f}%",
-            "Units/day":       int(row["Daily vol"]) * int(row["Avg units"]),
-            "Valid":           "✅" if ok else "⚠️",
+            "Order":         str(row["Order"]),
+            "Areas touched": str(touched) + " of 5",
+            "Boxes/order":   round(sum(draws), 1),
+            "Units/day":     int(row["Daily vol"]) * int(row["Avg units"]),
+            "Valid":         "✅" if ok else "⚠️",
         })
         order_updates[oid] = dict(
             name=str(row["Order"]),
             daily_volume=int(row["Daily vol"]),
             avg_units_per_order=int(row["Avg units"]),
-            paper_pct=float(row["600 %"]),   consumable_pct=float(row["400 %"]),
-            cust1_pct=float(row["300 %"]),   cust2_pct=float(row["200 %"]),
-            packout_pct=float(row["Packout %"]), kitting_pct=float(row["Kitting %"]),
+            draw={
+                "dock": float(row.get("Dock boxes/order", 0) or 0),
+                "back": float(row.get("Back wall boxes/order", 0) or 0),
+                "bulk": float(row.get("Bulk boxes/order", 0) or 0),
+                "mez":  float(row.get("Mez boxes/order", 0) or 0),
+                "pack": float(row.get("Packouts boxes/order", 0) or 0),
+            },
         )
 
-    st.caption("**Split validation** — each pair must total 100%:")
+    st.caption("**Coverage check** — each order type must draw on at least one area:")
     check_df = pd.DataFrame(check_rows)
     st.dataframe(check_df, hide_index=True, width="stretch",
                  height=int((len(check_df) + 1) * row_h + 3), row_height=row_h)
     if all_ok:
-        st.success("All split pairs total 100%.")
+        st.success("Every order type draws on at least one area.")
     else:
-        st.warning("Some split pairs don't total 100% (see ⚠️ rows) — auto-save is paused until every pair totals 100%.")
+        st.warning("Some order types draw on no area (see ⚠️ rows) — give each at least one non-zero area before saving.")
     return order_updates, all_ok
 
 
@@ -1002,9 +860,7 @@ def _apply_updates(area_updates, order_updates):
         ot.name                = u.get("name", ot.name)
         ot.daily_volume        = u["daily_volume"]
         ot.avg_units_per_order = u["avg_units_per_order"]
-        ot.storage_split  = StorageSplit(paper_pct=u["paper_pct"],      consumable_pct=u["consumable_pct"])
-        ot.customer_split = CustomerSplit(cust1_pct=u["cust1_pct"],     cust2_pct=u["cust2_pct"])
-        ot.kitting_split  = KittingSplit(packout_pct=u["packout_pct"],  kitting_pct=u["kitting_pct"])
+        ot.draw = {aid: float(u.get("draw_" + aid, ot.draw_for(aid))) for aid in AREA_ORDER}
 
 
 def _autosave_if_changed(valid: bool):
@@ -1116,7 +972,7 @@ def _render_excel_io():
                     st.markdown("**Areas**")
                     st.dataframe(
                         pd.DataFrame([{
-                            "Area": a.name, "Zone": a.zone,
+                            "Area": a.name,
                             "Rack L×D×H (ft)": fmt_dims_ft(a.rack_length_cuft, a.rack_depth_cuft, a.rack_height_cuft),
                             "Racks": a.num_racks,
                             "Volume (ft³)": round(a.volume_cuft, 1),
@@ -1133,12 +989,11 @@ def _render_excel_io():
                             "Order": ot.name,
                             "Daily vol": ot.daily_volume,
                             "Avg units": ot.avg_units_per_order,
-                            "Paper %": ot.storage_split.paper_pct,
-                            "Consumable %": ot.storage_split.consumable_pct,
-                            "Cust1 %": ot.customer_split.cust1_pct,
-                            "Cust2 %": ot.customer_split.cust2_pct,
-                            "Packout %": ot.kitting_split.packout_pct,
-                            "Kitting %": ot.kitting_split.kitting_pct,
+                            "Dock": ot.draw_for("dock"),
+                            "Back wall": ot.draw_for("back"),
+                            "Bulk": ot.draw_for("bulk"),
+                            "Mez": ot.draw_for("mez"),
+                            "Packouts": ot.draw_for("pack"),
                         } for ot in preview_orders]),
                         width="stretch", hide_index=True,
                         height=int((len(preview_orders) + 1) * 29 + 3), row_height=29)
@@ -1430,7 +1285,6 @@ elif page == "📦 Analysis":
             cap_src = "box cap" if a.area.has_box_cap else "volume"
             rows.append({
                 "Area":         a.area.name,
-                "Zone":         a.area.zone,
                 "Area volume (ft³)": round(a.area.volume_cuft, 1),
                 "Box L×W×H (ft)": fmt_dims_ft(a.area.box_length_cuft, a.area.box_depth_cuft, a.area.box_height_cuft),
                 "Box vol (ft³)": round(a.area.avg_box_size_cuft, 3),
@@ -1451,13 +1305,13 @@ elif page == "📦 Analysis":
         zcols = st.columns(len(zone_df))
         for i, (_, row) in enumerate(zone_df.iterrows()):
             pct = row["utilization_pct"]
-            zc  = ZONE_COLORS.get(row["zone_code"], "#888")
+            palette = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444"]
+            zc  = palette[i % len(palette)]
             with zcols[i]:
                 st.markdown(
                     "<div style='text-align:center;padding:10px;border:1px solid #2e3250;"
                     "border-radius:10px;border-left:4px solid " + zc + "'>"
-                    "<div style='font-size:11px;color:#6b7280'>Zone " + str(row["zone_code"]) + "</div>"
-                    "<div style='font-weight:600;font-size:12px'>" + str(row["zone_name"]) + "</div>"
+                    "<div style='font-weight:600;font-size:12px'>" + str(row["area"]) + "</div>"
                     "<div style='font-size:22px;font-weight:700;color:" + status_color(pct) + "'>" + str(pct) + "%</div>"
                     "<div style='font-size:11px;color:#6b7280'>" + str(row["capacity_boxes"]) + " box cap</div>"
                     "</div>", unsafe_allow_html=True)
@@ -1574,19 +1428,13 @@ elif page == "📦 Analysis":
         bom_df = engine.order_bom_summary(multiplier)
         if not bom_df.empty:
             fig5 = px.bar(
-                bom_df, x="order", y="boxes", color="zone_name", barmode="group",
-                labels={"boxes":"Boxes/day","order":"Order type","zone_name":"Zone"},
-                title="Daily boxes by zone and order type",
-                color_discrete_map={
-                    ZONE_NAMES["600"]: ZONE_COLORS["600"],
-                    ZONE_NAMES["400"]: ZONE_COLORS["400"],
-                    ZONE_NAMES["300"]: ZONE_COLORS["300"],
-                    ZONE_NAMES["200"]: ZONE_COLORS["200"],
-                })
+                bom_df, x="order", y="boxes", color="area", barmode="group",
+                labels={"boxes":"Boxes/day","order":"Order type","area":"Area"},
+                title="Daily boxes by area and order type")
             fig5.update_layout(height=250, margin=dict(l=10,r=10,t=40,b=40),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig5, width="stretch")
 
-            disp = bom_df[["order_name","zone_name","pct_of_total","units","units_per_box","boxes"]].copy()
-            disp.columns = ["Order","Zone","% of total","Units/day","Units per box","Boxes/day"]
+            disp = bom_df[["order_name","area","units","units_per_box","boxes"]].copy()
+            disp.columns = ["Order","Area","Units/day","Units per box","Boxes/day"]
             st.dataframe(disp, width="stretch", hide_index=True)
