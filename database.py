@@ -23,10 +23,7 @@ import json
 import os
 import streamlit as st
 
-from config import (
-    StorageArea, OrderType, StorageSplit, CustomerSplit, KittingSplit,
-    DEFAULT_AREAS, DEFAULT_ORDER_TYPES,
-)
+from config import StorageArea, OrderType
 
 # Default scenario name — single shared scenario for the internal demo.
 # Could be extended later to support multiple named scenarios per user.
@@ -45,7 +42,7 @@ _LOCAL_PATH = os.environ.get(
 
 def _area_to_dict(a: StorageArea) -> dict:
     return {
-        "id": a.id, "name": a.name, "zone": a.zone,
+        "id": a.id, "name": a.name,
         "rack_length_cuft": a.rack_length_cuft, "rack_depth_cuft": a.rack_depth_cuft,
         "rack_height_cuft": a.rack_height_cuft, "num_racks": a.num_racks,
         "box_length_cuft": a.box_length_cuft, "box_depth_cuft": a.box_depth_cuft,
@@ -56,7 +53,7 @@ def _area_to_dict(a: StorageArea) -> dict:
 
 def _area_from_dict(d: dict) -> StorageArea:
     return StorageArea(
-        id=d["id"], name=d["name"], zone=d["zone"],
+        id=d["id"], name=d["name"],
         rack_length_cuft=float(d["rack_length_cuft"]), rack_depth_cuft=float(d["rack_depth_cuft"]),
         rack_height_cuft=float(d["rack_height_cuft"]), num_racks=int(d["num_racks"]),
         box_length_cuft=float(d["box_length_cuft"]), box_depth_cuft=float(d["box_depth_cuft"]),
@@ -70,9 +67,7 @@ def _ot_to_dict(ot: OrderType) -> dict:
     return {
         "id": ot.id, "name": ot.name, "daily_volume": ot.daily_volume,
         "avg_units_per_order": ot.avg_units_per_order,
-        "paper_pct": ot.storage_split.paper_pct, "consumable_pct": ot.storage_split.consumable_pct,
-        "cust1_pct": ot.customer_split.cust1_pct, "cust2_pct": ot.customer_split.cust2_pct,
-        "packout_pct": ot.kitting_split.packout_pct, "kitting_pct": ot.kitting_split.kitting_pct,
+        "draw": dict(ot.draw),
     }
 
 
@@ -80,9 +75,7 @@ def _ot_from_dict(d: dict) -> OrderType:
     return OrderType(
         id=d["id"], name=d["name"], daily_volume=int(d["daily_volume"]),
         avg_units_per_order=int(d["avg_units_per_order"]),
-        storage_split=StorageSplit(paper_pct=float(d["paper_pct"]), consumable_pct=float(d["consumable_pct"])),
-        customer_split=CustomerSplit(cust1_pct=float(d["cust1_pct"]), cust2_pct=float(d["cust2_pct"])),
-        kitting_split=KittingSplit(packout_pct=float(d["packout_pct"]), kitting_pct=float(d["kitting_pct"])),
+        draw={k: float(v) for k, v in (d.get("draw") or {}).items()},
     )
 
 
