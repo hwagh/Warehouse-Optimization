@@ -1396,6 +1396,22 @@ elif page == "Analysis":
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, width="stretch")
 
+        st.subheader("Zone summary")
+        zone_df = engine.zone_summary(multiplier)
+        zcols = st.columns(len(zone_df))
+        for i, (_, row) in enumerate(zone_df.iterrows()):
+            pct = row["utilization_pct"]
+            zc  = ZONE_COLORS.get(row["zone_code"], "#888")
+            with zcols[i]:
+                st.markdown(
+                    "<div style='text-align:center;padding:10px;border:1px solid #2e3250;"
+                    "border-radius:10px;border-left:4px solid " + zc + "'>"
+                    "<div style='font-size:11px;color:#6b7280'>Zone " + str(row["zone_code"]) + "</div>"
+                    "<div style='font-weight:600;font-size:12px'>" + str(row["zone_name"]) + "</div>"
+                    "<div style='font-size:22px;font-weight:700;color:" + status_color(pct) + "'>" + str(pct) + "%</div>"
+                    "<div style='font-size:11px;color:#6b7280'>" + str(row["capacity_boxes"]) + " box capacity</div>"
+                    "</div>", unsafe_allow_html=True)
+
         rows = []
         for a in snap.areas:
             rows.append({
@@ -1413,22 +1429,6 @@ elif page == "Analysis":
                 "Status":       status_label(a.utilization_pct),
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
-        st.subheader("Zone summary")
-        zone_df = engine.zone_summary(multiplier)
-        zcols = st.columns(len(zone_df))
-        for i, (_, row) in enumerate(zone_df.iterrows()):
-            pct = row["utilization_pct"]
-            zc  = ZONE_COLORS.get(row["zone_code"], "#888")
-            with zcols[i]:
-                st.markdown(
-                    "<div style='text-align:center;padding:10px;border:1px solid #2e3250;"
-                    "border-radius:10px;border-left:4px solid " + zc + "'>"
-                    "<div style='font-size:11px;color:#6b7280'>Zone " + str(row["zone_code"]) + "</div>"
-                    "<div style='font-weight:600;font-size:12px'>" + str(row["zone_name"]) + "</div>"
-                    "<div style='font-size:22px;font-weight:700;color:" + status_color(pct) + "'>" + str(pct) + "%</div>"
-                    "<div style='font-size:11px;color:#6b7280'>" + str(row["capacity_boxes"]) + " box capacity</div>"
-                    "</div>", unsafe_allow_html=True)
 
     with tab2:
         st.subheader("Area detail — order contributions")
