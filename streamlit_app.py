@@ -26,8 +26,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Global "compact mode" — shrinks padding, gaps, headers, tables, metrics ──
-# Injected once; applies to every page. Pure CSS, so unmatched rules are no-ops.
+# ── Global styling — spacing, sizing, and visual polish applied to every page ──
+# Applied once to every page.
 st.markdown("""
 <style>
 /* reclaim the big empty margin at the top + sides of the page */
@@ -39,44 +39,50 @@ st.markdown("""
     max-width: 100% !important;
 }
 /* tighten the vertical gap between stacked elements */
-[data-testid="stVerticalBlock"] { gap: 0.45rem !important; }
-[data-testid="stHorizontalBlock"] { gap: 0.5rem !important; }
-/* smaller, tighter headings */
-h1, [data-testid="stHeading"] h1 { font-size: 1.5rem  !important; margin: .1rem 0 .3rem 0 !important; }
-h2 { font-size: 1.2rem  !important; margin: .2rem 0 !important; padding: 0 !important; }
-h3 { font-size: 1.02rem !important; margin: .15rem 0 !important; padding: 0 !important; }
+[data-testid="stVerticalBlock"] { gap: 0.6rem !important; }
+[data-testid="stHorizontalBlock"] { gap: 0.65rem !important; }
+/* headings — larger, clearer hierarchy */
+h1, [data-testid="stHeading"] h1 { font-size: 2.35rem !important; margin: .1rem 0 .55rem 0 !important; }
+h2 { font-size: 1.7rem  !important; margin: .4rem 0 !important; padding: 0 !important; }
+h3 { font-size: 1.35rem !important; margin: .32rem 0 !important; padding: 0 !important; }
+/* base body text */
+[data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p,
+.stMarkdown, .stMarkdown li { font-size: 1.12rem !important; }
 /* captions + small text */
-[data-testid="stCaptionContainer"], .stCaption { font-size: .74rem !important; margin: 0 !important; }
+[data-testid="stCaptionContainer"], .stCaption { font-size: 1.0rem !important; margin: 0 !important; }
 /* markdown paragraph spacing */
-[data-testid="stMarkdownContainer"] p { margin-bottom: .25rem !important; line-height: 1.3 !important; }
+[data-testid="stMarkdownContainer"] p { margin-bottom: .35rem !important; line-height: 1.55 !important; }
 /* thin dividers */
-hr { margin: .35rem 0 !important; }
-/* compact metrics */
-[data-testid="stMetric"] { padding: .2rem .4rem !important; }
-[data-testid="stMetricValue"] { font-size: 1.05rem !important; }
-[data-testid="stMetricLabel"] { font-size: .68rem !important; }
-[data-testid="stMetricLabel"] p { font-size: .68rem !important; }
-/* dataframes / data_editor: smaller font + rows */
-[data-testid="stDataFrame"], [data-testid="stDataEditor"] { font-size: .78rem !important; }
-[data-testid="stDataFrame"] div, [data-testid="stDataEditor"] div { line-height: 1.15 !important; }
-/* expanders: tight header + body */
-[data-testid="stExpander"] summary { padding: .3rem .55rem !important; font-size: .85rem !important; }
-[data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding: .3rem .6rem !important; }
-/* buttons: less padding */
+hr { margin: .55rem 0 !important; }
+/* metrics — bigger value, readable label */
+[data-testid="stMetric"] { padding: .4rem .6rem !important; }
+[data-testid="stMetricValue"] { font-size: 1.9rem !important; }
+[data-testid="stMetricLabel"] { font-size: 1.02rem !important; }
+[data-testid="stMetricLabel"] p { font-size: 1.02rem !important; }
+/* dataframes / data_editor: readable font + rows */
+[data-testid="stDataFrame"], [data-testid="stDataEditor"] { font-size: 1.05rem !important; }
+[data-testid="stDataFrame"] div, [data-testid="stDataEditor"] div { line-height: 1.4 !important; }
+/* expanders: readable header + body */
+[data-testid="stExpander"] summary { padding: .5rem .75rem !important; font-size: 1.15rem !important; }
+[data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding: .5rem .8rem !important; }
+/* buttons: comfortable padding + text */
 .stButton button, [data-testid="stDownloadButton"] button, [data-testid="baseButton-primary"] {
-    padding: .3rem .7rem !important; min-height: 0 !important;
+    padding: .5rem 1rem !important; min-height: 0 !important; font-size: 1.08rem !important;
 }
-/* alert / info / success boxes: tighter */
-[data-testid="stAlert"], [data-testid="stAlertContainer"] { padding: .4rem .6rem !important; }
-[data-testid="stAlert"] p { margin: 0 !important; font-size: .8rem !important; }
+/* alert / info / success boxes */
+[data-testid="stAlert"], [data-testid="stAlertContainer"] { padding: .65rem .85rem !important; }
+[data-testid="stAlert"] p { margin: 0 !important; font-size: 1.08rem !important; }
 /* number inputs a touch shorter */
-[data-testid="stNumberInput"] input { padding-top: .2rem !important; padding-bottom: .2rem !important; }
-/* tabs: tighter tab bar */
-[data-testid="stTabs"] [data-baseweb="tab"] { padding: .3rem .7rem !important; }
-[data-testid="stTabs"] [data-baseweb="tab-list"] { gap: .2rem !important; }
+[data-testid="stNumberInput"] input { padding-top: .35rem !important; padding-bottom: .35rem !important; font-size: 1.08rem !important; }
+/* tabs: readable tab bar */
+[data-testid="stTabs"] [data-baseweb="tab"] { padding: .55rem 1rem !important; }
+[data-testid="stTabs"] [data-baseweb="tab"] p { font-size: 1.15rem !important; }
+[data-testid="stTabs"] [data-baseweb="tab-list"] { gap: .35rem !important; }
 /* sidebar padding */
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .35rem !important; }
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: .45rem !important; }
 [data-testid="stSidebar"] .block-container { padding-top: 1rem !important; }
+/* sidebar nav radio — larger, easier to click */
+[data-testid="stSidebar"] [data-testid="stRadio"] label p { font-size: 1.08rem !important; }
 
 /* ── visual polish: consistent grouping, hierarchy, accents ── */
 /* KPI metrics read as a row of aligned cards */
@@ -558,7 +564,7 @@ with st.sidebar:
     st.markdown("## ⬡ Warehouse Planner")
     st.markdown("---")
     page = st.radio("Navigate",
-        ["📦 Analysis", "🏭 Material flow", "⚙️ Settings"],
+        ["Analysis", "Material flow", "Settings"],
         label_visibility="collapsed")
     st.markdown("---")
     if db.storage_mode() == "database":
@@ -568,7 +574,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Quick status at x1.0**")
     if not st.session_state.get("areas"):
-        st.info("No data yet — add it in ⚙️ Settings → Import / Export")
+        st.info("No data yet — add it in Settings → Import / Export")
     else:
         _snap = get_engine().snapshot(1.0)
         nb, nw = len(_snap.bottlenecks), len(_snap.warnings)
@@ -591,14 +597,14 @@ with st.sidebar:
 #  MATERIAL FLOW PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-if page == "🏭 Material flow":
-    st.title("🏭 Material flow")
+if page == "Material flow":
+    st.title("Material flow")
     render_last_updated()
     st.caption("How material moves through the warehouse — from inbound to final shipment.")
 
     if not st.session_state.get("areas"):
         st.info(
-            "**No data yet.** Upload a data file in **⚙️ Settings → 💾 Import / Export** to see the flow."
+            "**No data yet.** Upload a data file in **Settings → Import / Export** to see the flow."
         )
         st.stop()
 
@@ -832,7 +838,7 @@ def _render_area_settings():
     st.subheader("Storage areas")
     if not st.session_state.areas:
         st.info(
-            "No storage areas yet. Upload a data file in **💾 Import / Export**, then edit it here."
+            "No storage areas yet. Upload a data file in **Import / Export**, then edit it here."
         )
         return {}
     st.caption(
@@ -914,7 +920,7 @@ def _render_order_settings():
     st.subheader("Order types")
     if not st.session_state.order_types:
         st.info(
-            "No order types yet. Upload a data file in **💾 Import / Export**, then edit it here."
+            "No order types yet. Upload a data file in **Import / Export**, then edit it here."
         )
         return {}, True
     st.caption(
@@ -1245,8 +1251,8 @@ def _render_db_controls():
         )
 
 
-if page == "⚙️ Settings":
-    st.title("⚙️ Settings")
+if page == "Settings":
+    st.title("Settings")
     render_last_updated()
     st.caption("Pick a section below. Edit values, then hit **Save & recalculate** — "
                "your changes are saved automatically and persist across refreshes.")
@@ -1254,9 +1260,9 @@ if page == "⚙️ Settings":
     save_status = st.empty()
 
     tab_areas, tab_orders, tab_io = st.tabs([
-        "🗺️ Storage Areas",
-        "📦 Order Types",
-        "💾 Import / Export",
+        "Storage Areas",
+        "Order Types",
+        "Import / Export",
     ])
 
     with tab_areas:
@@ -1285,19 +1291,19 @@ if page == "⚙️ Settings":
 #  ANALYSIS PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-elif page == "📦 Analysis":
-    st.title("📦 Analysis")
+elif page == "Analysis":
+    st.title("Analysis")
     render_last_updated()
 
     if not st.session_state.get("_intro_dismissed"):
         with st.container(border=True):
-            st.markdown("#### 👋 Welcome to the Warehouse Capacity Planner")
+            st.markdown("#### Welcome to the Warehouse Capacity Planner")
             st.markdown(
-                "- **📦 Analysis** (this page) — how full each storage area is today. "
+                "- **Analysis** (this page) — how full each storage area is today. "
                 "Drag the **Volume multiplier** to simulate order growth and find bottlenecks.\n"
-                "- **🏭 Material flow** — how product moves from paper/consumables through the "
+                "- **Material flow** — how product moves from paper/consumables through the "
                 "customer zones to final packout.\n"
-                "- **⚙️ Settings** — edit rack & box sizes, order volumes, and splits. "
+                "- **Settings** — edit rack & box sizes, order volumes, and splits. "
                 "Changes **save automatically** — no Save button needed.\n"
                 "- Use **⬇️ Download report** below to export the current numbers to Excel."
             )
@@ -1307,8 +1313,7 @@ elif page == "📦 Analysis":
 
     if not st.session_state.get("areas"):
         st.info(
-            "**No data yet.** Go to **⚙️ Settings → 💾 Data & Storage** and either "
-            "load the calibrated example data, or open **Import / Export** and upload "
+            "**No data yet.** Go to **Settings \u2192 Import / Export** and upload "
             "your data file. The analysis will appear here once data is loaded."
         )
         st.stop()
