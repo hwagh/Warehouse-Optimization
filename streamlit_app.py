@@ -1328,6 +1328,38 @@ elif page == "Analysis":
     engine = get_engine()
     snap   = engine.snapshot(multiplier=multiplier)
 
+    # ── Order volume tiles — what volume we're working with, and where it lands ──
+    st.markdown("**Daily order volume** at x" + ("%.1f" % multiplier)
+                + (" (today)" if multiplier == 1.0 else ""))
+    zone_short = {"600": "Paper", "400": "Consumables", "300": "Cust 1",
+                  "200": "Cust 2", "100": "Packout"}
+    ocols = st.columns(len(engine.order_types))
+    for col, ot in zip(ocols, engine.order_types):
+        daily = int(round(ot.daily_volume * multiplier))
+        units = int(round(ot.total_units() * multiplier)) if hasattr(ot, "total_units") else daily * ot.avg_units_per_order
+        # boxes this order type puts into each area, biggest first
+        contrib = sorted(
+            [(a, ot.boxes_in_area(a, multiplier)) for a in engine.areas],
+            key=lambda t: t[1], reverse=True)
+        contrib = [(a, b) for a, b in contrib if b > 0][:3]
+        chips = "".join(
+            "<span style='display:inline-block;background:#1e2235;border:1px solid #2e3250;"
+            "border-radius:6px;padding:2px 8px;margin:2px 4px 0 0;font-size:12px;color:#c7d2fe'>"
+            + zone_short.get(a.zone, a.zone) + " · " + str(int(round(b))) + "</span>"
+            for a, b in contrib)
+        col.markdown(
+            "<div style='padding:12px 14px;border:1px solid #2e3250;border-radius:10px;"
+            "border-top:3px solid #4f6ef7;background:#141728;'>"
+            "<div style='font-size:13px;color:#9ca3af'>" + ot.name + "</div>"
+            "<div style='font-size:26px;font-weight:700;color:#e8eaf6;line-height:1.2'>"
+            + format(daily, ",") + "</div>"
+            "<div style='font-size:12px;color:#6b7280;margin-bottom:6px'>orders/day · "
+            + format(units, ",") + " units</div>"
+            "<div style='font-size:11px;color:#6b7280'>Boxes into:</div>"
+            "<div>" + chips + "</div>"
+            "</div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
     k1, k2, k3, k4, k5, k6 = st.columns(6)
     k1.metric("Capacity (boxes)", str(snap.total_capacity_boxes),
               help="Total boxes/pallets all storage areas can hold when full.")
@@ -1411,6 +1443,8 @@ elif page == "Analysis":
                     "<div style='font-size:22px;font-weight:700;color:" + status_color(pct) + "'>" + str(pct) + "%</div>"
                     "<div style='font-size:11px;color:#6b7280'>" + str(row["capacity_boxes"]) + " box capacity</div>"
                     "</div>", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 
         rows = []
         for a in snap.areas:
