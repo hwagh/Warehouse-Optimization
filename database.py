@@ -18,6 +18,7 @@ storage (values reset on refresh) so it still works without a database.
 
 from __future__ import annotations
 from typing import List, Optional
+from datetime import datetime, timezone
 import copy
 import json
 import os
@@ -93,6 +94,7 @@ def _local_save(areas: List[StorageArea], order_types: List[OrderType]) -> bool:
             json.dump({
                 "areas": [_area_to_dict(a) for a in areas],
                 "order_types": [_ot_to_dict(o) for o in order_types],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }, f, indent=2)
         os.replace(tmp, _LOCAL_PATH)   # atomic write
         return True
@@ -357,8 +359,49 @@ def save_all(areas: List[StorageArea], order_types: List[OrderType]) -> bool:
     if is_db_configured():
         ok1 = save_areas(areas)
         ok2 = save_order_types(order_types)
+        _save_meta_db()
         return ok1 and ok2
     return _local_save(areas, order_types)
+
+
+def _save_meta_db() -> None:
+    """Record the last-updated time in a Supabase 'warehouse_meta' table.
+    Tolerant by design: if the table doesn't exist yet, this silently no-ops
+    so saving never fails just because the meta table is missing."""
+    client = get_client()
+    if client is None:
+        return
+    try:
+        client.table("warehouse_meta").delete().eq("scenario", SCENARIO_NAME).execute()
+        client.table("warehouse_meta").insert({
+            "scenario": SCENARIO_NAME,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception:
+        pass  # meta table optional; absence just means "last updated: unknown"
+
+
+def last_updated() -> Optional[str]:
+    """Return the ISO timestamp of the last save, or None if unknown.
+    Reads from Supabase 'warehouse_meta' when configured, else the local JSON."""
+    if is_db_configured():
+        client = get_client()
+        if client is not None:
+            try:
+                resp = (client.table("warehouse_meta").select("updated_at")
+                        .eq("scenario", SCENARIO_NAME).limit(1).execute())
+                if resp.data:
+                    return resp.data[0].get("updated_at")
+            except Exception:
+                return None
+        return None
+    try:
+        if os.path.exists(_LOCAL_PATH):
+            with open(_LOCAL_PATH) as f:
+                return json.load(f).get("updated_at")
+    except Exception:
+        pass
+    return None
 
 
 def reset_to_defaults() -> bool:
