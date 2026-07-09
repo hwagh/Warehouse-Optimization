@@ -46,7 +46,6 @@ class StorageArea:
     box_length_cuft:    float      # box length (cu ft)
     box_depth_cuft:     float      # box depth  (cu ft)
     box_height_cuft:    float      # box height (cu ft)
-    max_concurrent_boxes: Optional[int] = None  # hard cap; None = use volume
 
     @property
     def avg_box_size_cuft(self) -> float:
@@ -65,18 +64,15 @@ class StorageArea:
 
     @property
     def capacity_boxes(self) -> int:
-        vol_cap = int((self.volume_cuft * self.efficiency) / self.avg_box_size_cuft)
-        if self.max_concurrent_boxes is not None:
-            return min(self.max_concurrent_boxes, vol_cap)
-        return vol_cap
+        """Capacity is always volume-based: (usable volume) / (box volume)."""
+        box = self.avg_box_size_cuft
+        if box <= 0:
+            return 0
+        return int((self.volume_cuft * self.efficiency) / box)
 
     @property
     def capacity_units(self) -> int:
         return int(self.capacity_boxes * self.units_per_box)
-
-    @property
-    def has_box_cap(self) -> bool:
-        return self.max_concurrent_boxes is not None
 
     def utilization_pct(self, load_boxes: float) -> float:
         cap = self.capacity_boxes
@@ -164,8 +160,9 @@ class OrderType:
 # All dimensions are internal cubic feet (cm → ft ÷ 30.48, m³ × 35.3147).
 # For each audited section the rack envelope (rack L×D×H × num_racks) and
 # efficiency reproduce the workbook's raw volume and mean box efficiency, and
-# `max_concurrent_boxes` pins displayed capacity to the audited box/pallet
-# total (the volume model always yields at least that many, so the cap governs):
+# Capacity is computed purely from volume: (rack L×D×H × num_racks × efficiency)
+# ÷ box volume. The audited box/pallet totals below are reference only — the
+# rack envelope and efficiency are set so the volume model reproduces them:
 #
 #   Section 400 — 24 racks × 210 cells, 6,440.8 m³, 72.9% eff → 193,991 boxes
 #   Section 600 — 6 pallet bays (2 levels), 1,502.9 m³, 73.4% eff → 538 pallets
@@ -182,7 +179,6 @@ DEFAULT_AREAS: List[StorageArea] = [
         rack_length_cuft=98.739, rack_depth_cuft=4.757, rack_height_cuft=18.832,
         num_racks=6, efficiency=0.734,
         box_length_cuft=4.0, box_depth_cuft=3.333, box_height_cuft=5.249, units_per_box=60.0,
-        max_concurrent_boxes=538,
     ),
     StorageArea(
         # 24 racks × 210 cells (274×44×106 cm); ~38.49 boxes/cell (40×30×20 cm rep box)
@@ -190,7 +186,6 @@ DEFAULT_AREAS: List[StorageArea] = [
         rack_length_cuft=188.780, rack_depth_cuft=3.478, rack_height_cuft=14.436,
         num_racks=24, efficiency=0.729,
         box_length_cuft=1.312, box_depth_cuft=0.984, box_height_cuft=0.656, units_per_box=12.0,
-        max_concurrent_boxes=193991,
     ),
     StorageArea(
         # 77 racks / 1,160 cells; 60×40×35 cm rep box (51-box sample)
@@ -198,7 +193,6 @@ DEFAULT_AREAS: List[StorageArea] = [
         rack_length_cuft=36.474, rack_depth_cuft=1.804, rack_height_cuft=7.907,
         num_racks=77, efficiency=0.58,
         box_length_cuft=1.969, box_depth_cuft=1.312, box_height_cuft=1.148, units_per_box=8.0,
-        max_concurrent_boxes=7512,
     ),
     StorageArea(
         # Group A (16 racks×5 cols) + Group B (13 columns); 346 cells; 60×40×35 cm rep box
@@ -206,7 +200,6 @@ DEFAULT_AREAS: List[StorageArea] = [
         rack_length_cuft=46.531, rack_depth_cuft=3.478, rack_height_cuft=7.710,
         num_racks=16, efficiency=0.55,
         box_length_cuft=1.969, box_depth_cuft=1.312, box_height_cuft=1.148, units_per_box=8.0,
-        max_concurrent_boxes=3304,
     ),
     StorageArea(
         # Section 100 — 32 racks × 39 cells (1,248 cells), 1,087 m³ raw volume.
@@ -216,7 +209,6 @@ DEFAULT_AREAS: List[StorageArea] = [
         rack_length_cuft=85.859, rack_depth_cuft=1.739, rack_height_cuft=8.038,
         num_racks=32, efficiency=0.65,
         box_length_cuft=1.066, box_depth_cuft=1.476, box_height_cuft=1.804, units_per_box=6.0,
-        max_concurrent_boxes=8118,
     ),
 ]
 
