@@ -995,6 +995,77 @@ def _render_order_settings():
         st.success("All split pairs total 100%.")
     else:
         st.warning("Some split pairs don't total 100% (see ⚠️ rows) — auto-save is paused until every pair totals 100%.")
+
+    # ── Add a new order type ─────────────────────────────────────────────────
+    st.markdown("---")
+    with st.expander("➕  Add a new order type", expanded=False):
+        st.caption(
+            "Give the order type a short code and name, its daily volume, and how it "
+            "splits across the zones. Each split pair must total 100%. "
+            "You can also add order types in bulk via Import / Export."
+        )
+        existing_ids = {o.id.upper() for o in st.session_state.order_types}
+
+        c1, c2, c3 = st.columns([1, 2, 1])
+        new_id   = c1.text_input("Code", key="new_ot_id", placeholder="e.g. CX", max_chars=6)
+        new_name = c2.text_input("Name", key="new_ot_name", placeholder="e.g. CX – Customer service")
+        new_vol  = c3.number_input("Daily vol", min_value=1, value=10, step=1, key="new_ot_vol")
+
+        c4, c5 = st.columns(2)
+        new_units = c4.number_input("Avg units / order", min_value=1, value=10, step=1, key="new_ot_units")
+
+        st.caption("Storage split (600 + 400 = 100)")
+        s1a, s1b = st.columns(2)
+        p_paper = s1a.number_input("600 Paper %", 0.0, 100.0, 40.0, 1.0, key="new_ot_paper")
+        p_cons  = s1b.number_input("400 Consumable %", 0.0, 100.0, 60.0, 1.0, key="new_ot_cons")
+
+        st.caption("Customer split (300 + 200 = 100)")
+        s2a, s2b = st.columns(2)
+        p_c1 = s2a.number_input("300 Cust 1 %", 0.0, 100.0, 60.0, 1.0, key="new_ot_c1")
+        p_c2 = s2b.number_input("200 Cust 2 %", 0.0, 100.0, 40.0, 1.0, key="new_ot_c2")
+
+        st.caption("Kitting split (Packout + Kitting = 100)")
+        s3a, s3b = st.columns(2)
+        p_pack = s3a.number_input("Packout %", 0.0, 100.0, 80.0, 1.0, key="new_ot_pack")
+        p_kit  = s3b.number_input("Kitting %", 0.0, 100.0, 20.0, 1.0, key="new_ot_kit")
+
+        # validation
+        problems = []
+        code = (new_id or "").strip().upper()
+        if not code:
+            problems.append("Enter a code.")
+        elif code in existing_ids:
+            problems.append("Code '" + code + "' is already used — pick a unique one.")
+        if abs((p_paper + p_cons) - 100) > 0.5:
+            problems.append("Storage split (600 + 400) must total 100.")
+        if abs((p_c1 + p_c2) - 100) > 0.5:
+            problems.append("Customer split (300 + 200) must total 100.")
+        if abs((p_pack + p_kit) - 100) > 0.5:
+            problems.append("Kitting split (Packout + Kitting) must total 100.")
+
+        if problems:
+            for p in problems:
+                st.caption("• " + p)
+
+        if st.button("Add order type", type="primary", disabled=bool(problems), key="add_ot_btn"):
+            st.session_state.order_types.append(OrderType(
+                id=code,
+                name=(new_name.strip() or code),
+                daily_volume=int(new_vol),
+                avg_units_per_order=int(new_units),
+                storage_split=StorageSplit(paper_pct=float(p_paper), consumable_pct=float(p_cons)),
+                customer_split=CustomerSplit(cust1_pct=float(p_c1), cust2_pct=float(p_c2)),
+                kitting_split=KittingSplit(packout_pct=float(p_pack), kitting_pct=float(p_kit)),
+            ))
+            # persist immediately and refresh the saved fingerprint
+            st.session_state._saved_sig = _config_signature()
+            db.save_all(st.session_state.areas, st.session_state.order_types)
+            # clear the input fields for the next entry
+            for k in ("new_ot_id", "new_ot_name"):
+                st.session_state.pop(k, None)
+            st.success("Added order type '" + code + "'.")
+            st.rerun()
+
     return order_updates, all_ok
 
 
