@@ -191,7 +191,7 @@ class WarehouseEngine:
 
     # ── bottleneck detection ──────────────────────────────────────────────────
 
-    def find_bottleneck_multiplier(self, area_id, threshold_pct=100.0, max_mult=20.0, resolution=0.1):
+    def find_bottleneck_multiplier(self, area_id, threshold_pct=100.0, max_mult=50.0, resolution=0.1):
         m = 1.0
         while m <= max_mult:
             snap = self.snapshot(multiplier=m)
@@ -201,7 +201,7 @@ class WarehouseEngine:
             m += resolution
         return None
 
-    def bottleneck_sequence(self, threshold_pct=100.0, max_mult=20.0):
+    def bottleneck_sequence(self, threshold_pct=100.0, max_mult=50.0):
         results = []
         for area in self.areas:
             m = self.find_bottleneck_multiplier(area.id, threshold_pct, max_mult)
