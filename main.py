@@ -1,4 +1,32 @@
 """
+Warehouse Capacity Planner — Terminal Reports & CLI  [DEPRECATED]
+
+This rich-based terminal report tool is no longer maintained. The project's
+single supported interface is the Streamlit web app (streamlit_app.py), which
+runs on the current area/draw model (five areas: Dock, Back wall, Bulk, Mez,
+Packouts; per-order-type per-area draws).
+
+This file still targets the old zone/split model and imports names that no
+longer exist in config.py (ZONE_NAMES, ZONE_FLOW_ORDER), so it will not run.
+It is kept only for historical reference. Do not deploy or depend on it.
+
+Run the app instead with:  streamlit run streamlit_app.py
+"""
+
+import sys as _sys
+
+print(
+    "\n[DEPRECATED] main.py (terminal CLI) is no longer supported.\n"
+    "It targets the old zone/split model and will not run against the\n"
+    "current config.py. Use the Streamlit web app instead:\n\n"
+    "    streamlit run streamlit_app.py\n"
+)
+_sys.exit(0)
+
+# ---------------------------------------------------------------------------
+# Legacy code below is preserved for reference only and is not executed.
+# ---------------------------------------------------------------------------
+"""
 Warehouse Capacity Planner — Terminal Reports & CLI
 Run:  python main.py
 """
