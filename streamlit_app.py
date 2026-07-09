@@ -195,7 +195,7 @@ def _config_signature() -> str:
             round(a.rack_height_cuft, 2), int(a.num_racks),
             round(a.box_length_cuft, 2), round(a.box_depth_cuft, 2),
             round(a.box_height_cuft, 2), round(a.efficiency, 4),
-            round(a.units_per_box, 3), a.max_concurrent_boxes,
+            round(a.units_per_box, 3),
         ]
 
     def ot_key(o):
@@ -236,7 +236,6 @@ AREA_COLS = [
     ("box_height_cuft",      "Box Height (ft)",     "Height of average box in feet"),
     ("efficiency",           "Efficiency (0-1)",    "Usable fraction, e.g. 0.75 = 75% after aisles"),
     ("units_per_box",        "Units per Box",       "Average units that fit in one box in this area"),
-    ("max_concurrent_boxes", "Max Concurrent Boxes","Hard cap on boxes at once - leave blank for no cap"),
 ]
 
 ORDER_COLS = [
@@ -288,7 +287,6 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
         "  •  Paper % + Consumable % must total 100 for every order type",
         "  •  Cust 1 % + Cust 2 % must total 100 for every order type",
         "  •  Direct to Packout % + Kitting % must total 100 for every order type",
-        "  •  Max Concurrent Boxes: leave blank if there is no hard cap",
         "",
         "TIP",
         "  •  Download this template anytime from Settings to get your current live values pre-filled.",
@@ -324,7 +322,6 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
             round(a.box_length_cuft, 2), round(a.box_depth_cuft, 2),
             round(a.box_height_cuft, 2),
             a.efficiency, a.units_per_box,
-            a.max_concurrent_boxes if a.max_concurrent_boxes is not None else None,
         ]
         for col_idx, val in enumerate(values, start=1):
             cell = ws_a.cell(row=r_idx, column=col_idx, value=val)
@@ -388,8 +385,6 @@ def excel_bytes_to_config(file_bytes):
         if row[0] is None or str(row[0]).strip() == "":
             continue
         d = dict(zip(area_keys, row))
-        max_b = d.get("max_concurrent_boxes")
-        max_b = int(float(max_b)) if max_b not in (None, "") else None
         areas.append(StorageArea(
             id=str(d["area_id"]).strip(),
             name=str(d["area_name"]).strip(),
@@ -404,7 +399,6 @@ def excel_bytes_to_config(file_bytes):
             box_height_cuft=float(d["box_height_cuft"]),
             efficiency=float(d["efficiency"]),
             units_per_box=float(d["units_per_box"]),
-            max_concurrent_boxes=max_b,
         ))
 
     order_types = []
@@ -860,7 +854,6 @@ def _render_area_settings():
         "Box H":     round(a.box_height_cuft, 2),
         "Eff.":      float(a.efficiency),
         "Units/box": float(a.units_per_box),
-        "Max boxes": int(a.max_concurrent_boxes) if a.max_concurrent_boxes is not None else 0,
     } for a in st.session_state.areas]).set_index("ID")
 
     row_h    = 29
@@ -880,8 +873,6 @@ def _render_area_settings():
             "Box H":     st.column_config.NumberColumn("Box H (ft)", min_value=0.01, step=0.1, format="%.2f", help="Height of the typical box/pallet."),
             "Eff.":      st.column_config.NumberColumn("Eff. (0–1)", min_value=0.1, max_value=1.0, step=0.01, format="%.2f", help="Usable fraction of rack volume after aisles/reach space. 0.75 = 75%."),
             "Units/box": st.column_config.NumberColumn("Units/box", min_value=1.0, step=1.0, format="%.0f", help="Average number of individual units in one box."),
-            "Max boxes": st.column_config.NumberColumn("Max boxes", min_value=0, step=10, format="%d",
-                                                       help="Optional hard cap on boxes (audited count). 0 = no cap, use volume."),
         },
     )
 
@@ -892,26 +883,23 @@ def _render_area_settings():
         rl, rd, rh = float(row["Rack L"]), float(row["Rack D"]), float(row["Rack H"])
         bl, bw, bh = float(row["Box L"]),  float(row["Box W"]),  float(row["Box H"])
         racks = int(row["# Racks"]); eff = float(row["Eff."]); upb = float(row["Units/box"])
-        max_raw = int(row["Max boxes"]); max_b = max_raw if max_raw > 0 else None
 
         total_vol = rl * rd * rh * racks
         box_vol   = bl * bw * bh
-        vol_cap   = int((total_vol * eff) / box_vol) if box_vol > 0 else 0
-        cap       = min(max_b, vol_cap) if max_b else vol_cap
+        cap       = int((total_vol * eff) / box_vol) if box_vol > 0 else 0
 
         area_updates[aid] = dict(
             name=str(row["Area"]),
             rack_length_cuft=rl, rack_depth_cuft=rd, rack_height_cuft=rh,
             num_racks=racks,
             box_length_cuft=bl, box_depth_cuft=bw, box_height_cuft=bh,
-            efficiency=eff, units_per_box=upb, max_concurrent_boxes=max_b,
+            efficiency=eff, units_per_box=upb,
         )
         prev_rows.append({
             "Area":                 str(row["Area"]),
             "Area volume (ft³)":    round(total_vol, 1),
             "Capacity (boxes)":     cap,
             "Capacity (units)":     int(cap * upb),
-            "Cap source":           "🔢 box cap" if (max_b and max_b < vol_cap) else "volume",
         })
 
     st.caption("**Live capacity preview** — recalculates as you type, applied on Save:")
@@ -1021,7 +1009,6 @@ def _apply_updates(area_updates, order_updates):
         a.box_height_cuft     = u["box_height_cuft"]
         a.efficiency          = u["efficiency"]
         a.units_per_box       = u["units_per_box"]
-        a.max_concurrent_boxes = u["max_concurrent_boxes"]
 
     ot_map = {o.id: o for o in st.session_state.order_types}
     for oid, u in order_updates.items():
@@ -1104,7 +1091,6 @@ def _render_excel_io():
                             "Box L×W×H (ft)": fmt_dims_ft(a.box_length_cuft, a.box_depth_cuft, a.box_height_cuft),
                             "Efficiency": a.efficiency,
                             "Units/box": a.units_per_box,
-                            "Max boxes": a.max_concurrent_boxes or "—",
                         } for a in preview_areas]),
                         width="stretch", hide_index=True,
                         height=int((len(preview_areas) + 1) * 29 + 3), row_height=29)
@@ -1406,7 +1392,6 @@ elif page == "📦 Analysis":
 
         rows = []
         for a in snap.areas:
-            cap_src = "box cap" if a.area.has_box_cap else "volume"
             rows.append({
                 "Area":         a.area.name,
                 "Zone":         a.area.zone,
@@ -1415,15 +1400,13 @@ elif page == "📦 Analysis":
                 "Box vol (ft³)": round(a.area.avg_box_size_cuft, 3),
                 "Units/box":    int(a.area.units_per_box),
                 "Load (boxes)": str(int(a.load_boxes)),
-                "Cap (boxes)":  str(a.capacity_boxes) + (" 🔢" if a.area.has_box_cap else ""),
+                "Cap (boxes)":  str(a.capacity_boxes),
                 "Load (units)": str(int(a.load_units)),
                 "Cap (units)":  str(a.capacity_units),
-                "Cap source":   cap_src,
                 "Util %":       str(round(a.utilization_pct, 1)) + "%",
                 "Status":       status_label(a.utilization_pct),
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        st.caption("🔢 = hard box cap active — utilization measured against max concurrent boxes, not volume")
 
         st.subheader("Zone summary")
         zone_df = engine.zone_summary(multiplier)
@@ -1438,13 +1421,13 @@ elif page == "📦 Analysis":
                     "<div style='font-size:11px;color:#6b7280'>Zone " + str(row["zone_code"]) + "</div>"
                     "<div style='font-weight:600;font-size:12px'>" + str(row["zone_name"]) + "</div>"
                     "<div style='font-size:22px;font-weight:700;color:" + status_color(pct) + "'>" + str(pct) + "%</div>"
-                    "<div style='font-size:11px;color:#6b7280'>" + str(row["capacity_boxes"]) + " box cap</div>"
+                    "<div style='font-size:11px;color:#6b7280'>" + str(row["capacity_boxes"]) + " box capacity</div>"
                     "</div>", unsafe_allow_html=True)
 
     with tab2:
         st.subheader("Area detail — order contributions")
         for a in snap.areas:
-            cap_tag = " 🔢 box cap" if a.area.has_box_cap else ""
+            cap_tag = ""
             with st.expander(
                 a.area.name + " — " + str(round(a.utilization_pct, 1)) + "%  |  "
                 + str(int(a.load_boxes)) + "/" + str(a.capacity_boxes) + " boxes" + cap_tag + "  |  "
