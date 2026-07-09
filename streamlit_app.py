@@ -1406,6 +1406,7 @@ elif page == "Analysis":
             y=area_names, x=utils, orientation="h",
             marker_color=colors,
             text=[str(p) + "%" for p in utils], textposition="outside",
+            textfont=dict(size=18, color="#e8eaf6"),
             customdata=list(zip(
                 [round(a.load_boxes, 0) for a in snap.areas],
                 [a.capacity_boxes       for a in snap.areas],
@@ -1423,9 +1424,11 @@ elif page == "Analysis":
         fig.add_vline(x=85,  line_dash="dot", line_color="#f59e0b", annotation_text="85%")
         fig.add_vline(x=100, line_dash="dot", line_color="#ef4444", annotation_text="100%")
         fig.update_layout(
-            xaxis=dict(title="Utilization %", range=[0, 115]),
-            yaxis=dict(autorange="reversed"),
-            height=250, margin=dict(l=10, r=60, t=20, b=40),
+            xaxis=dict(title="Utilization %", range=[0, 115],
+                       title_font=dict(size=15), tickfont=dict(size=14)),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=16)),
+            height=430, margin=dict(l=10, r=70, t=24, b=44),
+            bargap=0.28,
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, width="stretch")
 
@@ -1437,12 +1440,12 @@ elif page == "Analysis":
             zc  = ZONE_COLORS.get(row["zone_code"], "#888")
             with zcols[i]:
                 st.markdown(
-                    "<div style='text-align:center;padding:10px;border:1px solid #2e3250;"
-                    "border-radius:10px;border-left:4px solid " + zc + "'>"
-                    "<div style='font-size:11px;color:#6b7280'>Zone " + str(row["zone_code"]) + "</div>"
-                    "<div style='font-weight:600;font-size:12px'>" + str(row["zone_name"]) + "</div>"
-                    "<div style='font-size:22px;font-weight:700;color:" + status_color(pct) + "'>" + str(pct) + "%</div>"
-                    "<div style='font-size:11px;color:#6b7280'>" + str(row["capacity_boxes"]) + " box capacity</div>"
+                    "<div style='text-align:center;padding:18px 14px;border:1px solid #2e3250;"
+                    "border-radius:12px;border-left:6px solid " + zc + ";background:#141728;'>"
+                    "<div style='font-size:13px;color:#6b7280'>Zone " + str(row["zone_code"]) + "</div>"
+                    "<div style='font-weight:600;font-size:16px;color:#e8eaf6'>" + str(row["zone_name"]) + "</div>"
+                    "<div style='font-size:38px;font-weight:800;color:" + status_color(pct) + ";line-height:1.3'>" + str(pct) + "%</div>"
+                    "<div style='font-size:13px;color:#6b7280'>" + str(row["capacity_boxes"]) + " box capacity</div>"
                     "</div>", unsafe_allow_html=True)
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
