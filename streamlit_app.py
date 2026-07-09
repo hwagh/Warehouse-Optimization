@@ -1337,11 +1337,12 @@ elif page == "Analysis":
     for col, ot in zip(ocols, engine.order_types):
         daily = int(round(ot.daily_volume * multiplier))
         units = int(round(ot.total_units() * multiplier)) if hasattr(ot, "total_units") else daily * ot.avg_units_per_order
-        # boxes this order type puts into each area, biggest first
+        # boxes this order type puts into each area, biggest first (all areas,
+        # so lower-volume areas like Paper are never hidden)
         contrib = sorted(
             [(a, ot.boxes_in_area(a, multiplier)) for a in engine.areas],
             key=lambda t: t[1], reverse=True)
-        contrib = [(a, b) for a, b in contrib if b > 0][:3]
+        contrib = [(a, b) for a, b in contrib if b > 0]
         chips = "".join(
             "<span style='display:inline-block;background:#1e2235;border:1px solid #2e3250;"
             "border-radius:6px;padding:2px 8px;margin:2px 4px 0 0;font-size:12px;color:#c7d2fe'>"
