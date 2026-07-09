@@ -1031,59 +1031,11 @@ def _autosave_if_changed(valid: bool):
 
 
 def _render_excel_io():
-    # ── Portable data file (JSON) — the durable "database file" ──────────────
-    st.subheader("📦 Data file (recommended)")
+    st.subheader("📄 Excel setup file")
     st.caption(
-        "Your whole configuration as one portable file. **Download** it to keep a "
-        "backup, then **upload** it any time (or on a fresh app) to restore everything "
-        "instantly — the most reliable way to move data between sessions or servers."
-    )
-    jc1, jc2 = st.columns(2)
-    with jc1:
-        st.markdown("**⬇️ Download data file**")
-        st.caption("Saves all areas and order types to a single .json file.")
-        if not hasattr(db, "config_to_state_bytes"):
-            st.warning(
-                "The running copy of database.py is out of date and is missing "
-                "config_to_state_bytes. Re-deploy the latest database.py "
-                "(Manage app ▸ Reboot / clear cache) to enable this download."
-            )
-        else:
-            st.download_button(
-                "⬇️ Download data file (.json)",
-                data=db.config_to_state_bytes(st.session_state.areas, st.session_state.order_types),
-                file_name="warehouse_data_" + datetime.now().strftime("%Y%m%d_%H%M") + ".json",
-                mime="application/json",
-                width="stretch",
-                disabled=not st.session_state.areas and not st.session_state.order_types,
-            )
-    with jc2:
-        st.markdown("**⬆️ Upload data file**")
-        st.caption("Replaces everything with the contents of the file, and saves it.")
-        up_json = st.file_uploader(
-            "Choose data file", type=["json"], key="upload_data_file",
-            label_visibility="collapsed")
-        if up_json is not None:
-            try:
-                new_areas, new_orders = db.state_bytes_to_config(up_json.getvalue())
-                st.success(
-                    "✅ Read " + str(len(new_areas)) + " areas and "
-                    + str(len(new_orders)) + " order types.")
-                if st.button("✅ Apply this data file", type="primary",
-                             width="stretch", key="apply_data_file"):
-                    st.session_state.areas = new_areas
-                    st.session_state.order_types = new_orders
-                    st.session_state._saved_sig = _config_signature()
-                    db.save_all(new_areas, new_orders)
-                    st.success("Data file applied and saved.")
-                    st.rerun()
-            except ValueError as e:
-                st.error("❌ " + str(e))
-
-    st.markdown("---")
-    st.subheader("📄 Excel template (alternative)")
-    st.caption(
-        "Prefer editing in Excel? Download the template, fill it in, then upload it here."
+        "Download the current setup as an Excel file, edit it if you like, then "
+        "upload it here to load and share it. This is how setups move in and out "
+        "of the app."
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
