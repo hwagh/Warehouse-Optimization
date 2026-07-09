@@ -235,7 +235,7 @@ def save_areas(areas: List[StorageArea]) -> bool:
         client.table("warehouse_areas").delete().eq("scenario", SCENARIO_NAME).execute()
         rows = []
         for a in areas:
-            rows.append({
+            row = {
                 "scenario":              SCENARIO_NAME,
                 "area_id":               a.id,
                 "name":                  a.name,
@@ -249,12 +249,27 @@ def save_areas(areas: List[StorageArea]) -> bool:
                 "box_height_cuft":       a.box_height_cuft,
                 "efficiency":            a.efficiency,
                 "units_per_box":         a.units_per_box,
-                "max_concurrent_boxes":  a.max_concurrent_boxes,
-            })
+            }
+            # "no cap" is a valid state (None). Only send the column when it has
+            # a value, so a blank cap never becomes an explicit NULL that a
+            # NOT-NULL column would reject.
+            if a.max_concurrent_boxes is not None:
+                row["max_concurrent_boxes"] = a.max_concurrent_boxes
+            rows.append(row)
         client.table("warehouse_areas").insert(rows).execute()
         return True
     except Exception as e:
-        st.error("Database save failed (areas): " + str(e))
+        msg = str(e)
+        if "null value" in msg or "not-null" in msg:
+            st.error(
+                "Database save failed (areas): a required cell was blank. "
+                "Check the Areas sheet — every column except 'Max Concurrent "
+                "Boxes' must have a value. (If the DB rejects a blank "
+                "Max Concurrent Boxes, run migration_allow_null_maxboxes.sql.) "
+                "Details: " + msg
+            )
+        else:
+            st.error("Database save failed (areas): " + msg)
         return False
 
 
