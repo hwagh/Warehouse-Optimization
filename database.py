@@ -51,7 +51,7 @@ def _area_to_dict(a: StorageArea) -> dict:
         "rack_height_cuft": a.rack_height_cuft, "num_racks": a.num_racks,
         "box_length_cuft": a.box_length_cuft, "box_depth_cuft": a.box_depth_cuft,
         "box_height_cuft": a.box_height_cuft, "efficiency": a.efficiency,
-        "units_per_box": a.units_per_box, "max_concurrent_boxes": a.max_concurrent_boxes,
+        "units_per_box": a.units_per_box,
     }
 
 
@@ -63,7 +63,6 @@ def _area_from_dict(d: dict) -> StorageArea:
         box_length_cuft=float(d["box_length_cuft"]), box_depth_cuft=float(d["box_depth_cuft"]),
         box_height_cuft=float(d["box_height_cuft"]), efficiency=float(d["efficiency"]),
         units_per_box=float(d["units_per_box"]),
-        max_concurrent_boxes=(int(d["max_concurrent_boxes"]) if d.get("max_concurrent_boxes") is not None else None),
     )
 
 
@@ -250,11 +249,6 @@ def save_areas(areas: List[StorageArea]) -> bool:
                 "efficiency":            a.efficiency,
                 "units_per_box":         a.units_per_box,
             }
-            # "no cap" is a valid state (None). Only send the column when it has
-            # a value, so a blank cap never becomes an explicit NULL that a
-            # NOT-NULL column would reject.
-            if a.max_concurrent_boxes is not None:
-                row["max_concurrent_boxes"] = a.max_concurrent_boxes
             rows.append(row)
         client.table("warehouse_areas").insert(rows).execute()
         return True
@@ -295,10 +289,6 @@ def load_areas() -> Optional[List[StorageArea]]:
                 box_height_cuft=float(row["box_height_cuft"]),
                 efficiency=float(row["efficiency"]),
                 units_per_box=float(row["units_per_box"]),
-                max_concurrent_boxes=(
-                    int(row["max_concurrent_boxes"])
-                    if row.get("max_concurrent_boxes") is not None else None
-                ),
             ))
         return result
     except Exception as e:
