@@ -32,7 +32,7 @@ st.markdown("""
 <style>
 /* reclaim the big empty margin at the top + sides of the page */
 .block-container, [data-testid="stMainBlockContainer"] {
-    padding-top: 1.1rem !important;
+    padding-top: 3.2rem !important;
     padding-bottom: 1rem !important;
     padding-left: 1.6rem !important;
     padding-right: 1.6rem !important;
@@ -745,7 +745,7 @@ if page == "🏭 Material flow":
             margin=dict(l=10, r=10, t=20, b=10),
             paper_bgcolor="#0f1117",
             plot_bgcolor="#0f1117",
-            xaxis=dict(visible=False, range=[0, 100], fixedrange=True),
+            xaxis=dict(visible=False, range=[-12, 105], fixedrange=True),
             yaxis=dict(visible=False, range=[0, 100], fixedrange=True),
             showlegend=False,
         )
