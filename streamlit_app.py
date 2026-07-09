@@ -121,6 +121,27 @@ def status_label(pct):
     return "🟢 OK"
 
 
+def render_last_updated():
+    """Show when the shared setup was last saved. Same value for every viewer,
+    since it's read from stored data (Supabase or the local JSON), not the
+    current session clock."""
+    from datetime import datetime as _dt
+    ts = None
+    try:
+        ts = db.last_updated()
+    except Exception:
+        ts = None
+    if not ts:
+        st.caption("🕒 Last updated: not yet saved")
+        return
+    try:
+        dt = _dt.fromisoformat(ts)
+        pretty = dt.strftime("%b %d, %Y at %I:%M %p") + " UTC"
+    except Exception:
+        pretty = str(ts)
+    st.caption("🕒 Last updated: " + pretty)
+
+
 # ── unit system ───────────────────────────────────────────────────────────────
 # Internal storage is always cubic feet.
 # All inputs/outputs convert to/from the selected display unit.
@@ -578,6 +599,7 @@ with st.sidebar:
 
 if page == "🏭 Material flow":
     st.title("🏭 Material flow")
+    render_last_updated()
     st.caption("How material moves through the warehouse — from inbound to final shipment.")
 
     if not st.session_state.get("areas"):
@@ -1239,6 +1261,7 @@ def _render_db_controls():
 
 if page == "⚙️ Settings":
     st.title("⚙️ Settings")
+    render_last_updated()
     st.caption("Pick a section below. Edit values, then hit **Save & recalculate** — "
                "your changes are saved automatically and persist across refreshes.")
 
@@ -1278,6 +1301,7 @@ if page == "⚙️ Settings":
 
 elif page == "📦 Analysis":
     st.title("📦 Analysis")
+    render_last_updated()
 
     if not st.session_state.get("_intro_dismissed"):
         with st.container(border=True):
