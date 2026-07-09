@@ -538,8 +538,8 @@ def analysis_report_excel_bytes(engine, multiplier: float) -> bytes:
     ws_b = wb.create_sheet("Growth to capacity")
     ws_b.sheet_view.showGridLines = False
     _sheet_header(ws_b, ["Area", "Reaches 85% at", "Reaches 100% at"], width=24)
-    seq85  = {n: m for m, n, _ in engine.bottleneck_sequence(threshold_pct=85.0,  max_mult=20.0)}
-    seq100 = {n: m for m, n, _ in engine.bottleneck_sequence(threshold_pct=100.0, max_mult=20.0)}
+    seq85  = {n: m for m, n, _ in engine.bottleneck_sequence(threshold_pct=85.0,  max_mult=50.0)}
+    seq100 = {n: m for m, n, _ in engine.bottleneck_sequence(threshold_pct=100.0, max_mult=50.0)}
     names  = [a.area.name for a in snap.areas]
     for ri, name in enumerate(names, start=2):
         ws_b.cell(ri, 1, name).font = BODY_FONT
@@ -1314,10 +1314,11 @@ elif page == "📦 Analysis":
         st.stop()
 
     multiplier = st.slider(
-        "Volume multiplier", min_value=1.0, max_value=10.0,
-        value=1.0, step=0.1, format="x%.1f",
+        "Volume multiplier", min_value=1.0, max_value=50.0,
+        value=1.0, step=0.5, format="x%.1f",
         help="Scale every order type's daily volume to model growth. x1.0 = today; "
-             "x2.0 = double the volume. Watch which areas turn red first.")
+             "x2.0 = double the volume. Drag up to x50 to stress-test. "
+             "Watch which areas turn red first.")
 
     engine = get_engine()
     snap   = engine.snapshot(multiplier=multiplier)
@@ -1451,7 +1452,7 @@ elif page == "📦 Analysis":
 
     with tab3:
         st.subheader("Growth table")
-        df = engine.growth_table(max_multiplier=10.0, steps=18)
+        df = engine.growth_table(max_multiplier=50.0, steps=20)
         pivot = df.pivot_table(
             index="multiplier", columns="area",
             values="utilization_pct", aggfunc="first").reset_index()
@@ -1493,8 +1494,8 @@ elif page == "📦 Analysis":
 
     with tab4:
         st.subheader("Bottleneck sequence")
-        seq_100 = engine.bottleneck_sequence(threshold_pct=100.0, max_mult=20.0)
-        seq_85  = engine.bottleneck_sequence(threshold_pct=85.0,  max_mult=20.0)
+        seq_100 = engine.bottleneck_sequence(threshold_pct=100.0, max_mult=50.0)
+        seq_85  = engine.bottleneck_sequence(threshold_pct=85.0,  max_mult=50.0)
 
         if not seq_100:
             st.success("No areas hit 100% within x20 volume.")
