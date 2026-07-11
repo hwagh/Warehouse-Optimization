@@ -25,7 +25,7 @@ import os
 import streamlit as st
 
 from config import (
-    StorageArea, OrderType, StorageSplit, CustomerSplit, KittingSplit,
+    StorageArea, OrderType, StorageSplit, CustomerSplit, KittingSplit, KitStorageSplit,
     DEFAULT_AREAS, DEFAULT_ORDER_TYPES,
 )
 
@@ -73,6 +73,7 @@ def _ot_to_dict(ot: OrderType) -> dict:
         "paper_pct": ot.storage_split.paper_pct, "consumable_pct": ot.storage_split.consumable_pct,
         "cust1_pct": ot.customer_split.cust1_pct, "cust2_pct": ot.customer_split.cust2_pct,
         "packout_pct": ot.kitting_split.packout_pct, "kitting_pct": ot.kitting_split.kitting_pct,
+        "kit300_pct": ot.kit_storage_split.kit300_pct, "kit200_pct": ot.kit_storage_split.kit200_pct,
     }
 
 
@@ -83,6 +84,7 @@ def _ot_from_dict(d: dict) -> OrderType:
         storage_split=StorageSplit(paper_pct=float(d["paper_pct"]), consumable_pct=float(d["consumable_pct"])),
         customer_split=CustomerSplit(cust1_pct=float(d["cust1_pct"]), cust2_pct=float(d["cust2_pct"])),
         kitting_split=KittingSplit(packout_pct=float(d["packout_pct"]), kitting_pct=float(d["kitting_pct"])),
+        kit_storage_split=KitStorageSplit(kit300_pct=float(d.get("kit300_pct", 60.0)), kit200_pct=float(d.get("kit200_pct", 40.0))),
     )
 
 
@@ -318,6 +320,8 @@ def save_order_types(order_types: List[OrderType]) -> bool:
                 "cust2_pct":            ot.customer_split.cust2_pct,
                 "packout_pct":          ot.kitting_split.packout_pct,
                 "kitting_pct":          ot.kitting_split.kitting_pct,
+                "kit300_pct":           ot.kit_storage_split.kit300_pct,
+                "kit200_pct":           ot.kit_storage_split.kit200_pct,
             })
         client.table("warehouse_order_types").insert(rows).execute()
         return True
@@ -350,6 +354,9 @@ def load_order_types() -> Optional[List[OrderType]]:
                 kitting_split=KittingSplit(
                     packout_pct=float(row["packout_pct"]),
                     kitting_pct=float(row["kitting_pct"])),
+                kit_storage_split=KitStorageSplit(
+                    kit300_pct=float(row.get("kit300_pct", 60.0)),
+                    kit200_pct=float(row.get("kit200_pct", 40.0))),
             ))
         return result
     except Exception as e:
