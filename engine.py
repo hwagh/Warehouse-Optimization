@@ -121,7 +121,32 @@ class WarehouseEngine:
                     loads[area.id][ot.id] = loads[area.id].get(ot.id, 0) + boxes * kit_mult
                     self._apply_to_packout(loads, ot, boxes)
 
+            # ── Custom-kit loop (ADDED on top of the flow above) ──────────────
+            # kitting_pct of the order pulls FRESH material from 600/400 (by the
+            # storage split), gets kitted, is stored in 300/200 (by the kit
+            # storage split), then ships to 100.
+            self._apply_kit_loop(loads, ot, multiplier)
+
         return loads
+
+    def _apply_kit_loop(self, loads, ot: OrderType, multiplier: float):
+        """Extra load from the custom-kit loop: 600/400 draw + 300/200 storage + 100."""
+        def add(zone: str, units: float):
+            if units <= 0:
+                return
+            for area in self._areas_for_zone(zone):
+                boxes = units / area.units_per_box if area.units_per_box else 0
+                if boxes > 0:
+                    loads[area.id][ot.id] = loads[area.id].get(ot.id, 0) + boxes
+
+        # fresh material pulled for kits
+        add("600", ot.kit_units_from_paper(multiplier))
+        add("400", ot.kit_units_from_consumable(multiplier))
+        # kitted material stored in 300/200
+        add("300", ot.kit_units_to_300(multiplier))
+        add("200", ot.kit_units_to_200(multiplier))
+        # kitted material ships to 100
+        add("100", ot.kit_units_total(multiplier))
 
     def _apply_to_packout(self, loads, ot: OrderType, boxes: float):
         direct = boxes * (ot.kitting_split.packout_pct / 100)
