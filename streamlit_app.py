@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
     StorageArea, OrderType,
-    StorageSplit, CustomerSplit, KittingSplit,
+    StorageSplit, CustomerSplit, KittingSplit, KitStorageSplit,
     ZONE_NAMES, ZONE_FLOW_ORDER,
     DEFAULT_AREAS, DEFAULT_ORDER_TYPES,
 )
@@ -210,6 +210,7 @@ def _config_signature() -> str:
             round(o.storage_split.paper_pct, 3), round(o.storage_split.consumable_pct, 3),
             round(o.customer_split.cust1_pct, 3), round(o.customer_split.cust2_pct, 3),
             round(o.kitting_split.packout_pct, 3), round(o.kitting_split.kitting_pct, 3),
+            round(o.kit_storage_split.kit300_pct, 3), round(o.kit_storage_split.kit200_pct, 3),
         ]
 
     return json.dumps({
@@ -255,6 +256,8 @@ ORDER_COLS = [
     ("cust2_pct",           "Cust 2 % (Zone 200)", "Must total 100 with Cust 1 %"),
     ("packout_pct",         "Direct to Packout %", "Must total 100 with Kitting %"),
     ("kitting_pct",         "Kitting %",           "Must total 100 with Direct to Packout %"),
+    ("kit300_pct",          "Kit 300 %",           "Custom-kit storage: must total 100 with Kit 200 %"),
+    ("kit200_pct",          "Kit 200 %",           "Custom-kit storage: must total 100 with Kit 300 %"),
 ]
 
 HEADER_FILL  = PatternFill("solid", start_color="1F2937", end_color="1F2937")
@@ -293,6 +296,7 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
         "  •  Paper % + Consumable % must total 100 for every order type",
         "  •  Cust 1 % + Cust 2 % must total 100 for every order type",
         "  •  Direct to Packout % + Kitting % must total 100 for every order type",
+        "  •  Kit 300 % + Kit 200 % must total 100 for every order type",
         "",
         "TIP",
         "  •  Download this template anytime from Settings to get your current live values pre-filled.",
@@ -359,6 +363,7 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
             ot.storage_split.paper_pct, ot.storage_split.consumable_pct,
             ot.customer_split.cust1_pct, ot.customer_split.cust2_pct,
             ot.kitting_split.packout_pct, ot.kitting_split.kitting_pct,
+            ot.kit_storage_split.kit300_pct, ot.kit_storage_split.kit200_pct,
         ]
         for col_idx, val in enumerate(values, start=1):
             cell = ws_o.cell(row=r_idx, column=col_idx, value=val)
@@ -426,6 +431,9 @@ def excel_bytes_to_config(file_bytes):
             kitting_split=KittingSplit(
                 packout_pct=float(d["packout_pct"]),
                 kitting_pct=float(d["kitting_pct"])),
+            kit_storage_split=KitStorageSplit(
+                kit300_pct=float(d.get("kit300_pct", 60.0)),
+                kit200_pct=float(d.get("kit200_pct", 40.0))),
         ))
 
     if not areas:
@@ -939,6 +947,8 @@ def _render_order_settings():
         "200 %":     float(ot.customer_split.cust2_pct),
         "Packout %": float(ot.kitting_split.packout_pct),
         "Kitting %": float(ot.kitting_split.kitting_pct),
+        "Kit 300 %": float(ot.kit_storage_split.kit300_pct),
+        "Kit 200 %": float(ot.kit_storage_split.kit200_pct),
     } for ot in st.session_state.order_types]).set_index("ID")
 
     def pct(label, help=None):
@@ -959,6 +969,8 @@ def _render_order_settings():
             "200 %":     pct("200 Cust2 %",  "Of the consumables, share to Customer zone 200. 300% + 200% must total 100%."),
             "Packout %": pct("Packout %",    "Share going straight to packout. Packout% + Kitting% must total 100%."),
             "Kitting %": pct("Kitting %",    "Share routed through kitting first. Packout% + Kitting% must total 100%."),
+            "Kit 300 %": pct("Kit 300 %",    "Custom-kit loop: share of kitted material stored in 300. Kit300% + Kit200% must total 100%."),
+            "Kit 200 %": pct("Kit 200 %",    "Custom-kit loop: share of kitted material stored in 200. Kit300% + Kit200% must total 100%."),
         },
     )
 
@@ -968,13 +980,15 @@ def _render_order_settings():
         s1 = float(row["600 %"]) + float(row["400 %"])
         s2 = float(row["300 %"]) + float(row["200 %"])
         s3 = float(row["Packout %"]) + float(row["Kitting %"])
-        ok = all(abs(s - 100) <= 0.5 for s in (s1, s2, s3))
+        s4 = float(row["Kit 300 %"]) + float(row["Kit 200 %"])
+        ok = all(abs(s - 100) <= 0.5 for s in (s1, s2, s3, s4))
         all_ok = all_ok and ok
         check_rows.append({
             "Order":           str(row["Order"]),
             "Storage 600+400": f"{s1:.0f}%",
             "Cust 300+200":    f"{s2:.0f}%",
             "Kit pack+kitting":f"{s3:.0f}%",
+            "Kit 300+200":     f"{s4:.0f}%",
             "Units/day":       int(row["Daily vol"]) * int(row["Avg units"]),
             "Valid":           "✅" if ok else "⚠️",
         })
@@ -985,6 +999,7 @@ def _render_order_settings():
             paper_pct=float(row["600 %"]),   consumable_pct=float(row["400 %"]),
             cust1_pct=float(row["300 %"]),   cust2_pct=float(row["200 %"]),
             packout_pct=float(row["Packout %"]), kitting_pct=float(row["Kitting %"]),
+            kit300_pct=float(row["Kit 300 %"]), kit200_pct=float(row["Kit 200 %"]),
         )
 
     st.caption("**Split validation** — each pair must total 100%:")
@@ -1029,6 +1044,11 @@ def _render_order_settings():
         p_pack = s3a.number_input("Packout %", 0.0, 100.0, 80.0, 1.0, key="new_ot_pack")
         p_kit  = s3b.number_input("Kitting %", 0.0, 100.0, 20.0, 1.0, key="new_ot_kit")
 
+        st.caption("Custom-kit storage split (Kit 300 + Kit 200 = 100)")
+        s4a, s4b = st.columns(2)
+        p_k300 = s4a.number_input("Kit 300 %", 0.0, 100.0, 60.0, 1.0, key="new_ot_k300")
+        p_k200 = s4b.number_input("Kit 200 %", 0.0, 100.0, 40.0, 1.0, key="new_ot_k200")
+
         # validation
         problems = []
         code = (new_id or "").strip().upper()
@@ -1042,6 +1062,8 @@ def _render_order_settings():
             problems.append("Customer split (300 + 200) must total 100.")
         if abs((p_pack + p_kit) - 100) > 0.5:
             problems.append("Kitting split (Packout + Kitting) must total 100.")
+        if abs((p_k300 + p_k200) - 100) > 0.5:
+            problems.append("Custom-kit storage split (Kit 300 + Kit 200) must total 100.")
 
         if problems:
             for p in problems:
@@ -1056,6 +1078,7 @@ def _render_order_settings():
                 storage_split=StorageSplit(paper_pct=float(p_paper), consumable_pct=float(p_cons)),
                 customer_split=CustomerSplit(cust1_pct=float(p_c1), cust2_pct=float(p_c2)),
                 kitting_split=KittingSplit(packout_pct=float(p_pack), kitting_pct=float(p_kit)),
+                kit_storage_split=KitStorageSplit(kit300_pct=float(p_k300), kit200_pct=float(p_k200)),
             ))
             # persist immediately and refresh the saved fingerprint
             st.session_state._saved_sig = _config_signature()
@@ -1098,6 +1121,7 @@ def _apply_updates(area_updates, order_updates):
         ot.storage_split  = StorageSplit(paper_pct=u["paper_pct"],      consumable_pct=u["consumable_pct"])
         ot.customer_split = CustomerSplit(cust1_pct=u["cust1_pct"],     cust2_pct=u["cust2_pct"])
         ot.kitting_split  = KittingSplit(packout_pct=u["packout_pct"],  kitting_pct=u["kitting_pct"])
+        ot.kit_storage_split = KitStorageSplit(kit300_pct=u.get("kit300_pct", 60.0), kit200_pct=u.get("kit200_pct", 40.0))
 
 
 def _autosave_if_changed(valid: bool):
