@@ -110,6 +110,18 @@ class KittingSplit:
     kitting_pct: float = 30.0
 
 
+@dataclass
+class KitStorageSplit:
+    """Custom-kit loop — where kitted material is stored: kit300_pct + kit200_pct = 100.
+
+    Applies to the kitting_pct share of an order that goes through the custom-kit
+    loop: material is pulled fresh from 600/400 (by the storage split), kitted, then
+    stored across 300/200 by THIS split, then shipped to 100.
+    """
+    kit300_pct: float = 60.0
+    kit200_pct: float = 40.0
+
+
 # ---------------------------------------------------------------------------
 # OrderType
 # ---------------------------------------------------------------------------
@@ -122,6 +134,7 @@ class OrderType:
     storage_split:  StorageSplit  = field(default_factory=StorageSplit)
     customer_split: CustomerSplit = field(default_factory=CustomerSplit)
     kitting_split:  KittingSplit  = field(default_factory=KittingSplit)
+    kit_storage_split: KitStorageSplit = field(default_factory=KitStorageSplit)
 
     def total_units(self, multiplier: float = 1.0) -> float:
         return self.daily_volume * multiplier * self.avg_units_per_order
@@ -137,6 +150,25 @@ class OrderType:
 
     def units_cust2(self, multiplier: float = 1.0) -> float:
         return self.units_consumable(multiplier) * (self.customer_split.cust2_pct / 100)
+
+    # ── custom-kit loop (added on top of the normal flow) ─────────────────────
+    # kitting_pct of the order's total units go through the custom-kit loop:
+    # pulled fresh from 600/400 (by storage split), kitted, stored in 300/200
+    # (by kit_storage_split), then shipped to 100.
+    def kit_units_total(self, multiplier: float = 1.0) -> float:
+        return self.total_units(multiplier) * (self.kitting_split.kitting_pct / 100)
+
+    def kit_units_from_paper(self, multiplier: float = 1.0) -> float:
+        return self.kit_units_total(multiplier) * (self.storage_split.paper_pct / 100)
+
+    def kit_units_from_consumable(self, multiplier: float = 1.0) -> float:
+        return self.kit_units_total(multiplier) * (self.storage_split.consumable_pct / 100)
+
+    def kit_units_to_300(self, multiplier: float = 1.0) -> float:
+        return self.kit_units_total(multiplier) * (self.kit_storage_split.kit300_pct / 100)
+
+    def kit_units_to_200(self, multiplier: float = 1.0) -> float:
+        return self.kit_units_total(multiplier) * (self.kit_storage_split.kit200_pct / 100)
 
     def boxes_in_area(self, area: "StorageArea", multiplier: float = 1.0) -> float:
         """Boxes placed in a given area based on zone routing."""
