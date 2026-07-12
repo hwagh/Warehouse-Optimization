@@ -52,6 +52,14 @@ def _area_to_dict(a: StorageArea) -> dict:
         "box_length_cuft": a.box_length_cuft, "box_depth_cuft": a.box_depth_cuft,
         "box_height_cuft": a.box_height_cuft, "efficiency": a.efficiency,
         "units_per_box": a.units_per_box,
+        "of1_rack_length_cuft": a.of1_rack_length_cuft,
+        "of1_rack_depth_cuft": a.of1_rack_depth_cuft,
+        "of1_rack_height_cuft": a.of1_rack_height_cuft,
+        "of1_num_racks": a.of1_num_racks,
+        "of2_rack_length_cuft": a.of2_rack_length_cuft,
+        "of2_rack_depth_cuft": a.of2_rack_depth_cuft,
+        "of2_rack_height_cuft": a.of2_rack_height_cuft,
+        "of2_num_racks": a.of2_num_racks,
     }
 
 
@@ -63,6 +71,14 @@ def _area_from_dict(d: dict) -> StorageArea:
         box_length_cuft=float(d["box_length_cuft"]), box_depth_cuft=float(d["box_depth_cuft"]),
         box_height_cuft=float(d["box_height_cuft"]), efficiency=float(d["efficiency"]),
         units_per_box=float(d["units_per_box"]),
+        of1_rack_length_cuft=float(d.get("of1_rack_length_cuft", 0) or 0),
+        of1_rack_depth_cuft=float(d.get("of1_rack_depth_cuft", 0) or 0),
+        of1_rack_height_cuft=float(d.get("of1_rack_height_cuft", 0) or 0),
+        of1_num_racks=int(d.get("of1_num_racks", 0) or 0),
+        of2_rack_length_cuft=float(d.get("of2_rack_length_cuft", 0) or 0),
+        of2_rack_depth_cuft=float(d.get("of2_rack_depth_cuft", 0) or 0),
+        of2_rack_height_cuft=float(d.get("of2_rack_height_cuft", 0) or 0),
+        of2_num_racks=int(d.get("of2_num_racks", 0) or 0),
     )
 
 
@@ -252,6 +268,15 @@ def save_areas(areas: List[StorageArea]) -> bool:
                 "box_height_cuft":       a.box_height_cuft,
                 "efficiency":            a.efficiency,
                 "units_per_box":         a.units_per_box,
+                "of1_rack_length_cuft":   a.of1_rack_length_cuft,
+                "of1_rack_depth_cuft":    a.of1_rack_depth_cuft,
+                "of1_rack_height_cuft":   a.of1_rack_height_cuft,
+                "of1_num_racks":          a.of1_num_racks,
+                "of2_rack_length_cuft":   a.of2_rack_length_cuft,
+                "of2_rack_depth_cuft":    a.of2_rack_depth_cuft,
+                "of2_rack_height_cuft":   a.of2_rack_height_cuft,
+                "of2_num_racks":          a.of2_num_racks,
+
             }
             rows.append(row)
         client.table("warehouse_areas").insert(rows).execute()
@@ -293,6 +318,14 @@ def load_areas() -> Optional[List[StorageArea]]:
                 box_height_cuft=float(row["box_height_cuft"]),
                 efficiency=float(row["efficiency"]),
                 units_per_box=float(row["units_per_box"]),
+                of1_rack_length_cuft=float(row.get("of1_rack_length_cuft", 0) or 0),
+                of1_rack_depth_cuft=float(row.get("of1_rack_depth_cuft", 0) or 0),
+                of1_rack_height_cuft=float(row.get("of1_rack_height_cuft", 0) or 0),
+                of1_num_racks=int(row.get("of1_num_racks", 0) or 0),
+                of2_rack_length_cuft=float(row.get("of2_rack_length_cuft", 0) or 0),
+                of2_rack_depth_cuft=float(row.get("of2_rack_depth_cuft", 0) or 0),
+                of2_rack_height_cuft=float(row.get("of2_rack_height_cuft", 0) or 0),
+                of2_num_racks=int(row.get("of2_num_racks", 0) or 0),
             ))
         return result
     except Exception as e:
