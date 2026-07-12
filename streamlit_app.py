@@ -30,6 +30,9 @@ st.set_page_config(
 # Applied once to every page.
 st.markdown("""
 <style>
+/* hide only the GitHub source-code icon in the hosted-app toolbar
+   (leaves Share, star, edit, and the menu visible) */
+[data-testid="stToolbarActions"] a[href*="github.com"] { display: none !important; }
 /* reclaim the big empty margin at the top + sides of the page */
 .block-container, [data-testid="stMainBlockContainer"] {
     padding-top: 3.2rem !important;
