@@ -205,13 +205,20 @@ def _config_signature() -> str:
         ]
 
     def ot_key(o):
+        # Use getattr with defaults so order types loaded before the kit-split
+        # fields existed (stale session state) never crash the signature.
+        ks = getattr(o, "kit_storage_split", None)
+        ksrc = getattr(o, "kit_source_split", None)
+        kit300 = round(ks.kit300_pct, 3) if ks else 60.0
+        kit200 = round(ks.kit200_pct, 3) if ks else 40.0
+        kit600 = round(ksrc.kit600_pct, 3) if ksrc else 40.0
+        kit400 = round(ksrc.kit400_pct, 3) if ksrc else 60.0
         return [
             o.id, o.name, int(o.daily_volume), int(o.avg_units_per_order),
             round(o.storage_split.paper_pct, 3), round(o.storage_split.consumable_pct, 3),
             round(o.customer_split.cust1_pct, 3), round(o.customer_split.cust2_pct, 3),
             round(o.kitting_split.packout_pct, 3), round(o.kitting_split.kitting_pct, 3),
-            round(o.kit_storage_split.kit300_pct, 3), round(o.kit_storage_split.kit200_pct, 3),
-            round(o.kit_source_split.kit600_pct, 3), round(o.kit_source_split.kit400_pct, 3),
+            kit300, kit200, kit600, kit400,
         ]
 
     return json.dumps({
@@ -474,6 +481,13 @@ if "areas" not in st.session_state:
         _a.box_height_cuft  = round(_a.box_height_cuft, 2)
     st.session_state.areas       = [copy.deepcopy(a) for a in _loaded_areas]
     st.session_state.order_types = [copy.deepcopy(o) for o in _loaded_orders]
+    # Guarantee every order type has the kit-split fields, so order types loaded
+    # or created before these fields existed can't crash any page on switch.
+    for _o in st.session_state.order_types:
+        if getattr(_o, "kit_storage_split", None) is None:
+            _o.kit_storage_split = KitStorageSplit()
+        if getattr(_o, "kit_source_split", None) is None:
+            _o.kit_source_split = KitSourceSplit()
     # remember what's persisted so auto-save only fires on real edits
     st.session_state._saved_sig = _config_signature()
 
