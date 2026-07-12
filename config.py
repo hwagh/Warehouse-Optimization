@@ -140,24 +140,14 @@ class StorageArea:
         return {"main": in_main, "of1": in_of1, "of2": in_of2, "spilled": spilled}
 
     def status(self, load_boxes: float) -> str:
-        """WARNING once main is exceeded (using overflow); OVER CAPACITY only
-        when main + both overflows are all exceeded. Without overflow, behaves
-        like the classic thresholds."""
-        if not self.has_overflow:
-            pct = self.utilization_pct(load_boxes)
-            if pct >= 100: return "OVER CAPACITY"
-            if pct >= 85:  return "CRITICAL"
-            if pct >= 70:  return "WARNING"
-            return "OK"
-        total_cap = self.total_capacity_boxes
-        main_cap  = self.capacity_boxes
-        if load_boxes > total_cap:
-            return "OVER CAPACITY"
-        if load_boxes > main_cap:
-            return "WARNING"        # spilling into overflow
+        """Status is measured against MAIN capacity, so it agrees with the
+        utilization bar and the KPI counts: the moment load exceeds the main
+        area (i.e. spills into overflow), the area reads OVER CAPACITY.
+        Overflow capacity is shown separately as available extra room."""
         pct = self.utilization_pct(load_boxes)
-        if pct >= 85: return "CRITICAL"
-        if pct >= 70: return "WARNING"
+        if pct >= 100: return "OVER CAPACITY"
+        if pct >= 85:  return "CRITICAL"
+        if pct >= 70:  return "WARNING"
         return "OK"
 
 
