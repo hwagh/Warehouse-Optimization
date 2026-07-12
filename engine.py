@@ -29,6 +29,9 @@ class AreaSnapshot:
     utilization_pct: float
     status: str
     contributing_orders: Dict[str, float]
+    total_capacity_boxes: int = 0
+    overflow_capacity_boxes: int = 0
+    fill: Dict[str, float] = None
 
 
 @dataclass
@@ -211,6 +214,9 @@ class WarehouseEngine:
                 utilization_pct=area.utilization_pct(total_boxes),
                 status=area.status(total_boxes),
                 contributing_orders=area_loads,
+                total_capacity_boxes=area.total_capacity_boxes,
+                overflow_capacity_boxes=area.overflow_capacity_boxes,
+                fill=area.fill_breakdown(total_boxes),
             ))
         return WarehouseSnapshot(multiplier=multiplier, areas=snaps, flow=flow)
 
