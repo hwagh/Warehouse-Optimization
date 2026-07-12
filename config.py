@@ -115,11 +115,22 @@ class KitStorageSplit:
     """Custom-kit loop — where kitted material is stored: kit300_pct + kit200_pct = 100.
 
     Applies to the kitting_pct share of an order that goes through the custom-kit
-    loop: material is pulled fresh from 600/400 (by the storage split), kitted, then
-    stored across 300/200 by THIS split, then shipped to 100.
+    loop: material is pulled fresh from 600/400 (by the kit SOURCE split), kitted,
+    then stored across 300/200 by THIS split, then shipped to 100.
     """
     kit300_pct: float = 60.0
     kit200_pct: float = 40.0
+
+
+@dataclass
+class KitSourceSplit:
+    """Custom-kit loop — where kit material is pulled FROM: kit600_pct + kit400_pct = 100.
+
+    Independent of the normal storage split; lets kitting draw from Paper (600) and
+    Consumables (400) in its own proportion.
+    """
+    kit600_pct: float = 40.0
+    kit400_pct: float = 60.0
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +146,7 @@ class OrderType:
     customer_split: CustomerSplit = field(default_factory=CustomerSplit)
     kitting_split:  KittingSplit  = field(default_factory=KittingSplit)
     kit_storage_split: KitStorageSplit = field(default_factory=KitStorageSplit)
+    kit_source_split: KitSourceSplit = field(default_factory=KitSourceSplit)
 
     def total_units(self, multiplier: float = 1.0) -> float:
         return self.daily_volume * multiplier * self.avg_units_per_order
@@ -159,10 +171,10 @@ class OrderType:
         return self.total_units(multiplier) * (self.kitting_split.kitting_pct / 100)
 
     def kit_units_from_paper(self, multiplier: float = 1.0) -> float:
-        return self.kit_units_total(multiplier) * (self.storage_split.paper_pct / 100)
+        return self.kit_units_total(multiplier) * (self.kit_source_split.kit600_pct / 100)
 
     def kit_units_from_consumable(self, multiplier: float = 1.0) -> float:
-        return self.kit_units_total(multiplier) * (self.storage_split.consumable_pct / 100)
+        return self.kit_units_total(multiplier) * (self.kit_source_split.kit400_pct / 100)
 
     def kit_units_to_300(self, multiplier: float = 1.0) -> float:
         return self.kit_units_total(multiplier) * (self.kit_storage_split.kit300_pct / 100)
