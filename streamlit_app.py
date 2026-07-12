@@ -127,6 +127,17 @@ def status_label(pct):
     return "🟢 OK"
 
 
+def status_label_for(area_snapshot):
+    """Overflow-aware status label using the area's own cascade logic."""
+    s = area_snapshot.status  # already computed with overflow in the engine
+    return {
+        "OVER CAPACITY": "🔴 OVER CAPACITY",
+        "CRITICAL":      "🟡 CRITICAL",
+        "WARNING":       "🟠 WARNING",
+        "OK":            "🟢 OK",
+    }.get(s, "🟢 OK")
+
+
 def render_last_updated():
     """Show when the shared setup was last saved. Same value for every viewer,
     since it's read from stored data (Supabase or the local JSON), not the
@@ -195,6 +206,7 @@ def _config_signature() -> str:
     changed does. Used to drive auto-save.
     """
     def area_key(a):
+        g = lambda k: getattr(a, k, 0) or 0
         return [
             a.id, a.name, a.zone,
             round(a.rack_length_cuft, 2), round(a.rack_depth_cuft, 2),
@@ -202,6 +214,10 @@ def _config_signature() -> str:
             round(a.box_length_cuft, 2), round(a.box_depth_cuft, 2),
             round(a.box_height_cuft, 2), round(a.efficiency, 4),
             round(a.units_per_box, 3),
+            round(g("of1_rack_length_cuft"), 2), round(g("of1_rack_depth_cuft"), 2),
+            round(g("of1_rack_height_cuft"), 2), int(g("of1_num_racks")),
+            round(g("of2_rack_length_cuft"), 2), round(g("of2_rack_depth_cuft"), 2),
+            round(g("of2_rack_height_cuft"), 2), int(g("of2_num_racks")),
         ]
 
     def ot_key(o):
@@ -251,6 +267,14 @@ AREA_COLS = [
     ("box_height_cuft",      "Box Height (ft)",     "Height of average box in feet"),
     ("efficiency",           "Efficiency (0-1)",    "Usable fraction, e.g. 0.75 = 75% after aisles"),
     ("units_per_box",        "Units per Box",       "Average units that fit in one box in this area"),
+    ("of1_rack_length_cuft",  "OF1 Rack Length (ft)",  "Overflow zone rack dimension (0 = none)"),
+    ("of1_rack_depth_cuft",   "OF1 Rack Depth (ft)",   "Overflow zone rack dimension (0 = none)"),
+    ("of1_rack_height_cuft",  "OF1 Rack Height (ft)",  "Overflow zone rack dimension (0 = none)"),
+    ("of1_num_racks",         "OF1 Number of Racks",   "Overflow zone rack dimension (0 = none)"),
+    ("of2_rack_length_cuft",  "OF2 Rack Length (ft)",  "Overflow zone rack dimension (0 = none)"),
+    ("of2_rack_depth_cuft",   "OF2 Rack Depth (ft)",   "Overflow zone rack dimension (0 = none)"),
+    ("of2_rack_height_cuft",  "OF2 Rack Height (ft)",  "Overflow zone rack dimension (0 = none)"),
+    ("of2_num_racks",         "OF2 Number of Racks",   "Overflow zone rack dimension (0 = none)"),
 ]
 
 ORDER_COLS = [
@@ -342,6 +366,7 @@ def config_to_excel_bytes(areas, order_types) -> bytes:
             round(a.box_length_cuft, 2), round(a.box_depth_cuft, 2),
             round(a.box_height_cuft, 2),
             a.efficiency, a.units_per_box,
+            getattr(a, "of1_rack_length_cuft", 0), getattr(a, "of1_rack_depth_cuft", 0), getattr(a, "of1_rack_height_cuft", 0), getattr(a, "of1_num_racks", 0), getattr(a, "of2_rack_length_cuft", 0), getattr(a, "of2_rack_depth_cuft", 0), getattr(a, "of2_rack_height_cuft", 0), getattr(a, "of2_num_racks", 0),
         ]
         for col_idx, val in enumerate(values, start=1):
             cell = ws_a.cell(row=r_idx, column=col_idx, value=val)
@@ -421,6 +446,14 @@ def excel_bytes_to_config(file_bytes):
             box_height_cuft=float(d["box_height_cuft"]),
             efficiency=float(d["efficiency"]),
             units_per_box=float(d["units_per_box"]),
+            of1_rack_length_cuft=float(d.get("of1_rack_length_cuft", 0) or 0),
+            of1_rack_depth_cuft=float(d.get("of1_rack_depth_cuft", 0) or 0),
+            of1_rack_height_cuft=float(d.get("of1_rack_height_cuft", 0) or 0),
+            of1_num_racks=int(float(d.get("of1_num_racks", 0) or 0)),
+            of2_rack_length_cuft=float(d.get("of2_rack_length_cuft", 0) or 0),
+            of2_rack_depth_cuft=float(d.get("of2_rack_depth_cuft", 0) or 0),
+            of2_rack_height_cuft=float(d.get("of2_rack_height_cuft", 0) or 0),
+            of2_num_racks=int(float(d.get("of2_num_racks", 0) or 0)),
         ))
 
     order_types = []
@@ -887,6 +920,53 @@ def _render_area_settings():
     prev_df = pd.DataFrame(prev_rows)
     st.dataframe(prev_df, hide_index=True, width="stretch",
                  height=int((len(prev_df) + 1) * row_h + 3), row_height=row_h)
+
+    # ── Overflow zones (2 per area) ──────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### Overflow zones")
+    st.caption(
+        "Each area can have up to two overflow zones. When the main area fills, load "
+        "spills into overflow 1, then overflow 2. Overflow capacity uses the same box "
+        "size and efficiency as the main area. Leave racks at 0 for no overflow. "
+        "An area shows **WARNING** once it spills into overflow, and **OVER CAPACITY** "
+        "only when the main area plus both overflow zones are full."
+    )
+    area_map = {a.id: a for a in st.session_state.areas}
+    for aid in area_updates:
+        a = area_map.get(aid)
+        if a is None:
+            continue
+        u = area_updates[aid]
+        box_vol = u["box_length_cuft"] * u["box_depth_cuft"] * u["box_height_cuft"]
+        eff = u["efficiency"]
+        def _cap(rl, rd, rh, nr):
+            v = rl * rd * rh * nr
+            return int((v * eff) / box_vol) if box_vol > 0 else 0
+        main_cap = u_cap = _cap(u["rack_length_cuft"], u["rack_depth_cuft"], u["rack_height_cuft"], u["num_racks"])
+        with st.expander(a.name + "  —  overflow zones", expanded=False):
+            for n in (1, 2):
+                st.markdown("**Overflow " + str(n) + "**")
+                c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1.4])
+                rl = c1.number_input("Rack L (ft)", min_value=0.0, step=0.5, format="%.2f",
+                    value=float(getattr(a, f"of{n}_rack_length_cuft", 0.0)), key=f"of{n}_rl_{aid}")
+                rd = c2.number_input("Rack D (ft)", min_value=0.0, step=0.5, format="%.2f",
+                    value=float(getattr(a, f"of{n}_rack_depth_cuft", 0.0)), key=f"of{n}_rd_{aid}")
+                rh = c3.number_input("Rack H (ft)", min_value=0.0, step=0.5, format="%.2f",
+                    value=float(getattr(a, f"of{n}_rack_height_cuft", 0.0)), key=f"of{n}_rh_{aid}")
+                nr = c4.number_input("# Racks", min_value=0, step=1, format="%d",
+                    value=int(getattr(a, f"of{n}_num_racks", 0)), key=f"of{n}_nr_{aid}")
+                ofcap = _cap(rl, rd, rh, nr)
+                c5.metric("Overflow " + str(n) + " cap", f"{ofcap:,} boxes")
+                u[f"of{n}_rack_length_cuft"] = rl
+                u[f"of{n}_rack_depth_cuft"]  = rd
+                u[f"of{n}_rack_height_cuft"] = rh
+                u[f"of{n}_num_racks"]        = int(nr)
+            of1 = _cap(u["of1_rack_length_cuft"], u["of1_rack_depth_cuft"], u["of1_rack_height_cuft"], u["of1_num_racks"])
+            of2 = _cap(u["of2_rack_length_cuft"], u["of2_rack_depth_cuft"], u["of2_rack_height_cuft"], u["of2_num_racks"])
+            st.caption(
+                "Total effective capacity: **" + f"{main_cap + of1 + of2:,}" + " boxes** "
+                "(main " + f"{main_cap:,}" + " + overflow " + f"{of1 + of2:,}" + ")"
+            )
     return area_updates
 
 
@@ -1139,6 +1219,10 @@ def _apply_updates(area_updates, order_updates):
         a.box_height_cuft     = u["box_height_cuft"]
         a.efficiency          = u["efficiency"]
         a.units_per_box       = u["units_per_box"]
+        for _k in ("of1_rack_length_cuft","of1_rack_depth_cuft","of1_rack_height_cuft","of1_num_racks",
+                   "of2_rack_length_cuft","of2_rack_depth_cuft","of2_rack_height_cuft","of2_num_racks"):
+            if _k in u:
+                setattr(a, _k, u[_k])
 
     ot_map = {o.id: o for o in st.session_state.order_types}
     for oid, u in order_updates.items():
@@ -1596,6 +1680,13 @@ elif page == "Analysis":
 
         rows = []
         for a in snap.areas:
+            of_note = ""
+            if a.overflow_capacity_boxes > 0:
+                fb = a.fill or {}
+                using = "main"
+                if fb.get("of2", 0) > 0: using = "overflow 2"
+                elif fb.get("of1", 0) > 0: using = "overflow 1"
+                of_note = "+" + str(a.overflow_capacity_boxes) + " (" + using + ")"
             rows.append({
                 "Area":         a.area.name,
                 "Zone":         a.area.zone,
@@ -1605,10 +1696,12 @@ elif page == "Analysis":
                 "Units/box":    int(a.area.units_per_box),
                 "Load (boxes)": str(int(a.load_boxes)),
                 "Cap (boxes)":  str(a.capacity_boxes),
+                "Overflow":     of_note or "—",
+                "Total cap":    str(a.total_capacity_boxes),
                 "Load (units)": str(int(a.load_units)),
                 "Cap (units)":  str(a.capacity_units),
                 "Util %":       str(round(a.utilization_pct, 1)) + "%",
-                "Status":       status_label(a.utilization_pct),
+                "Status":       status_label_for(a),
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
