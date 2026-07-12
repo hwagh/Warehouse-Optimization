@@ -170,17 +170,25 @@ class OrderType:
     def kit_units_total(self, multiplier: float = 1.0) -> float:
         return self.total_units(multiplier) * (self.kitting_split.kitting_pct / 100)
 
+    def _kit_source(self):
+        s = getattr(self, "kit_source_split", None)
+        return s if s is not None else KitSourceSplit()
+
+    def _kit_storage(self):
+        s = getattr(self, "kit_storage_split", None)
+        return s if s is not None else KitStorageSplit()
+
     def kit_units_from_paper(self, multiplier: float = 1.0) -> float:
-        return self.kit_units_total(multiplier) * (self.kit_source_split.kit600_pct / 100)
+        return self.kit_units_total(multiplier) * (self._kit_source().kit600_pct / 100)
 
     def kit_units_from_consumable(self, multiplier: float = 1.0) -> float:
-        return self.kit_units_total(multiplier) * (self.kit_source_split.kit400_pct / 100)
+        return self.kit_units_total(multiplier) * (self._kit_source().kit400_pct / 100)
 
     def kit_units_to_300(self, multiplier: float = 1.0) -> float:
-        return self.kit_units_total(multiplier) * (self.kit_storage_split.kit300_pct / 100)
+        return self.kit_units_total(multiplier) * (self._kit_storage().kit300_pct / 100)
 
     def kit_units_to_200(self, multiplier: float = 1.0) -> float:
-        return self.kit_units_total(multiplier) * (self.kit_storage_split.kit200_pct / 100)
+        return self.kit_units_total(multiplier) * (self._kit_storage().kit200_pct / 100)
 
     def boxes_in_area(self, area: "StorageArea", multiplier: float = 1.0) -> float:
         """Boxes placed in a given area based on zone routing."""
