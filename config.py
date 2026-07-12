@@ -47,6 +47,18 @@ class StorageArea:
     box_depth_cuft:     float      # box depth  (cu ft)
     box_height_cuft:    float      # box height (cu ft)
 
+    # Optional overflow zones (2). Each has its own rack dimensions + rack count
+    # and reuses this area's box size + efficiency. Load cascades main -> OF1 -> OF2.
+    # A zone with 0 racks (or 0 dimensions) contributes no capacity.
+    of1_rack_length_cuft: float = 0.0
+    of1_rack_depth_cuft:  float = 0.0
+    of1_rack_height_cuft: float = 0.0
+    of1_num_racks:        int   = 0
+    of2_rack_length_cuft: float = 0.0
+    of2_rack_depth_cuft:  float = 0.0
+    of2_rack_height_cuft: float = 0.0
+    of2_num_racks:        int   = 0
+
     @property
     def avg_box_size_cuft(self) -> float:
         """Box volume = L × D × H."""
@@ -62,27 +74,90 @@ class StorageArea:
         """Volume of a single rack."""
         return self.rack_length_cuft * self.rack_depth_cuft * self.rack_height_cuft
 
+    def _cap_from(self, vol_cuft: float) -> int:
+        box = self.avg_box_size_cuft
+        if box <= 0 or vol_cuft <= 0:
+            return 0
+        return int((vol_cuft * self.efficiency) / box)
+
     @property
     def capacity_boxes(self) -> int:
-        """Capacity is always volume-based: (usable volume) / (box volume)."""
-        box = self.avg_box_size_cuft
-        if box <= 0:
-            return 0
-        return int((self.volume_cuft * self.efficiency) / box)
+        """Main capacity (volume-based). Overflow is separate — see overflow_*."""
+        return self._cap_from(self.volume_cuft)
+
+    @property
+    def of1_capacity_boxes(self) -> int:
+        vol = self.of1_rack_length_cuft * self.of1_rack_depth_cuft * self.of1_rack_height_cuft * self.of1_num_racks
+        return self._cap_from(vol)
+
+    @property
+    def of2_capacity_boxes(self) -> int:
+        vol = self.of2_rack_length_cuft * self.of2_rack_depth_cuft * self.of2_rack_height_cuft * self.of2_num_racks
+        return self._cap_from(vol)
+
+    @property
+    def overflow_capacity_boxes(self) -> int:
+        return self.of1_capacity_boxes + self.of2_capacity_boxes
+
+    @property
+    def total_capacity_boxes(self) -> int:
+        """Main + both overflow zones."""
+        return self.capacity_boxes + self.overflow_capacity_boxes
+
+    @property
+    def has_overflow(self) -> bool:
+        return self.overflow_capacity_boxes > 0
 
     @property
     def capacity_units(self) -> int:
         return int(self.capacity_boxes * self.units_per_box)
 
+    @property
+    def total_capacity_units(self) -> int:
+        return int(self.total_capacity_boxes * self.units_per_box)
+
     def utilization_pct(self, load_boxes: float) -> float:
+        """Utilization against MAIN capacity (can exceed 100 when spilling)."""
         cap = self.capacity_boxes
         return (load_boxes / cap * 100) if cap > 0 else 0.0
 
+    def total_utilization_pct(self, load_boxes: float) -> float:
+        """Utilization against main + overflow."""
+        cap = self.total_capacity_boxes
+        return (load_boxes / cap * 100) if cap > 0 else 0.0
+
+    def fill_breakdown(self, load_boxes: float) -> dict:
+        """Cascade the load across main -> OF1 -> OF2. Returns boxes in each."""
+        main_cap = self.capacity_boxes
+        of1_cap  = self.of1_capacity_boxes
+        of2_cap  = self.of2_capacity_boxes
+        in_main = min(load_boxes, main_cap)
+        rem = max(0.0, load_boxes - main_cap)
+        in_of1 = min(rem, of1_cap)
+        rem = max(0.0, rem - of1_cap)
+        in_of2 = min(rem, of2_cap)
+        spilled = max(0.0, rem - of2_cap)
+        return {"main": in_main, "of1": in_of1, "of2": in_of2, "spilled": spilled}
+
     def status(self, load_boxes: float) -> str:
+        """WARNING once main is exceeded (using overflow); OVER CAPACITY only
+        when main + both overflows are all exceeded. Without overflow, behaves
+        like the classic thresholds."""
+        if not self.has_overflow:
+            pct = self.utilization_pct(load_boxes)
+            if pct >= 100: return "OVER CAPACITY"
+            if pct >= 85:  return "CRITICAL"
+            if pct >= 70:  return "WARNING"
+            return "OK"
+        total_cap = self.total_capacity_boxes
+        main_cap  = self.capacity_boxes
+        if load_boxes > total_cap:
+            return "OVER CAPACITY"
+        if load_boxes > main_cap:
+            return "WARNING"        # spilling into overflow
         pct = self.utilization_pct(load_boxes)
-        if pct >= 100: return "OVER CAPACITY"
-        if pct >= 85:  return "CRITICAL"
-        if pct >= 70:  return "WARNING"
+        if pct >= 85: return "CRITICAL"
+        if pct >= 70: return "WARNING"
         return "OK"
 
 
